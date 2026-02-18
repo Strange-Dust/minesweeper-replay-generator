@@ -1,0 +1,19 @@
+{
+  "name": "minesweeper-replay-generator",
+  "version": "0.1.0",
+  "description": "Browser extension to record minesweeper games and generate .rawvf replay files",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.36",
+    "esbuild": "^0.24.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="16" fill="#2563eb"/>
+  <circle cx="64" cy="58" r="20" fill="#1e1e1e"/>
+  <line x1="64" y1="28" x2="64" y2="38" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="64" y1="78" x2="64" y2="88" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="34" y1="58" x2="44" y2="58" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="84" y1="58" x2="94" y2="58" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="43" y1="37" x2="50" y2="44" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="78" y1="72" x2="85" y2="79" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="85" y1="37" x2="78" y2="44" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <line x1="50" y1="72" x2="43" y2="79" stroke="#1e1e1e" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="64" cy="58" r="8" fill="#ef4444"/>
+  <circle cx="60" cy="54" r="3" fill="white" opacity="0.6"/>
+  <!-- REC indicator -->
+  <circle cx="100" cy="100" r="14" fill="#ef4444"/>
+  <text x="100" y="105" font-size="12" font-weight="bold" fill="white" text-anchor="middle" font-family="sans-serif">R</text>
+</svg>
