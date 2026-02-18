@@ -7,6 +7,7 @@
  *   - Download the generated .rawvf file
  */
 
+import browser from '../utils/browser'
 import type { StatusResponse } from '../types/messages'
 
 // DOM elements
@@ -28,14 +29,14 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null
 
 async function init(): Promise<void> {
   // Load saved player name
-  const stored = await chrome.storage.local.get('playerName')
+  const stored = await browser.storage.local.get('playerName')
   if (stored.playerName && typeof stored.playerName === 'string') {
     playerNameInput.value = stored.playerName
   }
 
   // Save player name on change
   playerNameInput.addEventListener('input', () => {
-    chrome.storage.local.set({ playerName: playerNameInput.value })
+    browser.storage.local.set({ playerName: playerNameInput.value })
   })
 
   // Button handlers
@@ -55,14 +56,14 @@ async function init(): Promise<void> {
  * Send a message to the content script in the active tab.
  */
 async function sendToContentScript(message: { type: string; [key: string]: unknown }): Promise<unknown> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id) {
     console.error('No active tab found')
     return null
   }
 
   try {
-    return await chrome.tabs.sendMessage(tab.id, message)
+    return await browser.tabs.sendMessage(tab.id, message)
   } catch (err) {
     console.error('Failed to communicate with content script:', err)
     return null

@@ -13,6 +13,7 @@
  * for a particular minesweeper website.
  */
 
+import browser from '../utils/browser'
 import type { RecordingState, RecordingData } from '../types/rawvf'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
@@ -34,27 +35,22 @@ let playerName: string | undefined
 // Message handler
 // --------------------------------------------------------------------------
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, _sender) => {
   switch (message.type) {
     case 'START_RECORDING':
       playerName = message.playerName
-      handleStartRecording()
-        .then((result) => sendResponse(result))
-        .catch((err) => sendResponse({ error: String(err) }))
-      return true // async response
+      return handleStartRecording()
+        .catch((err) => ({ error: String(err) }))
 
     case 'STOP_RECORDING':
       handleStopRecording()
-      sendResponse({ success: true })
-      return false
+      return Promise.resolve({ success: true })
 
     case 'GET_STATUS':
-      sendResponse(getStatus())
-      return false
+      return Promise.resolve(getStatus())
 
     case 'GET_RECORDING_DATA':
-      sendResponse(getRecordingDataResponse())
-      return false
+      return Promise.resolve(getRecordingDataResponse())
   }
 })
 

@@ -4,22 +4,24 @@
  * Handles:
  *   - Extension lifecycle events (install, update)
  *   - Optional: relay messages between popup and content scripts
- *     (currently popup communicates directly with content script via chrome.tabs)
+ *     (currently popup communicates directly with content script via browser.tabs)
  *
  * This is intentionally minimal — most logic lives in the content script
  * and popup. The service worker is mainly here for future expansion
  * (e.g., badge updates, notifications, cross-tab state).
  */
 
+import browser from '../utils/browser'
+
 // --------------------------------------------------------------------------
 // Extension lifecycle
 // --------------------------------------------------------------------------
 
-chrome.runtime.onInstalled.addListener((details) => {
+browser.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     console.log('Minesweeper Replay Generator installed.')
   } else if (details.reason === 'update') {
-    console.log(`Minesweeper Replay Generator updated to v${chrome.runtime.getManifest().version}`)
+    console.log(`Minesweeper Replay Generator updated to v${browser.runtime.getManifest().version}`)
   }
 })
 
@@ -27,7 +29,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Message relay (if needed in the future)
 // --------------------------------------------------------------------------
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   // Currently, popup talks directly to content script.
   // This handler is here for potential future use (e.g., badge updates).
 
@@ -35,9 +37,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Update the extension badge to show recording state
     updateBadge(message.state, sender.tab?.id)
   }
-
-  // Return false to indicate synchronous (no async response needed)
-  return false
 })
 
 // --------------------------------------------------------------------------
@@ -54,6 +53,6 @@ function updateBadge(state: string, tabId?: number): void {
 
   const config = badgeConfig[state] ?? badgeConfig['idle']!
 
-  chrome.action.setBadgeText({ text: config.text, tabId })
-  chrome.action.setBadgeBackgroundColor({ color: config.color, tabId })
+  browser.action.setBadgeText({ text: config.text, tabId })
+  browser.action.setBadgeBackgroundColor({ color: config.color, tabId })
 }
