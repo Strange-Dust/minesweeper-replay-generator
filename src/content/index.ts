@@ -35,10 +35,11 @@ let playerName: string | undefined
 // Message handler
 // --------------------------------------------------------------------------
 
-browser.runtime.onMessage.addListener((message, _sender) => {
-  switch (message.type) {
+browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtime.MessageSender) => {
+  const msg = message as { type: string; playerName?: string }
+  switch (msg.type) {
     case 'START_RECORDING':
-      playerName = message.playerName
+      playerName = msg.playerName
       return handleStartRecording()
         .catch((err) => ({ error: String(err) }))
 

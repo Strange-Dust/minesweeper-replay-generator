@@ -29,13 +29,14 @@ browser.runtime.onInstalled.addListener((details) => {
 // Message relay (if needed in the future)
 // --------------------------------------------------------------------------
 
-browser.runtime.onMessage.addListener((message, sender) => {
+browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime.MessageSender) => {
+  const msg = message as { type: string; state?: string }
   // Currently, popup talks directly to content script.
   // This handler is here for potential future use (e.g., badge updates).
 
-  if (message.type === 'RECORDING_STATE_CHANGED') {
+  if (msg.type === 'RECORDING_STATE_CHANGED') {
     // Update the extension badge to show recording state
-    updateBadge(message.state, sender.tab?.id)
+    updateBadge(msg.state ?? 'idle', sender.tab?.id)
   }
 })
 
