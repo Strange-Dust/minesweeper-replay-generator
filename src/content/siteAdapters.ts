@@ -16,6 +16,7 @@
  */
 
 import type { BoardConfig, BoardPosition, BoardEventCode, GameResult } from '../types/rawvf'
+import { createMinesweeperOnlineAdapter } from './adapters/minesweeperOnline'
 
 // ============================================================================
 // Site adapter interface
@@ -92,9 +93,7 @@ export interface SiteAdapter {
  * More specific adapters should come before generic ones.
  */
 const SITE_ADAPTERS: SiteAdapter[] = [
-  // Adapters will be added here as we implement support for specific sites.
-  // Example: new MinesweeperOnlineAdapter(),
-  // Example: new MinesweeperGGAdapter(),
+  createMinesweeperOnlineAdapter(),
 ]
 
 /**

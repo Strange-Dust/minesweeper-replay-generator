@@ -32,7 +32,7 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 - RAWVF output: `(col, row)`, 1-indexed (conversion handled by the writer)
 
 ## Site Adapters
-No site adapters have been implemented yet. The `SiteAdapter` interface in `src/content/siteAdapters.ts` defines what each adapter must provide:
+The `SiteAdapter` interface in `src/content/siteAdapters.ts` defines what each adapter must provide:
 - `matches()` — detect if the current page is the target site
 - `findBoardElement()` — locate the board in the DOM
 - `getBoardConfig()` — extract dimensions, mine count, cell size
@@ -41,6 +41,15 @@ No site adapters have been implemented yet. The `SiteAdapter` interface in `src/
 - `extractCellPosition()` — get (row, col) from a cell element
 - `getMinePositions()` — read mine locations (post-game only)
 - `onGameEnd()` — detect win/loss
+
+### minesweeper.online (`src/content/adapters/minesweeperOnline.ts`)
+- Board container: `#AreaBlock`
+- Cell elements: `.cell` with `id="cell_{x}_{y}"`, `data-x` (col), `data-y` (row)
+- Cell state: skin-prefixed classes like `{skin}_closed`, `{skin}_type3`, `{skin}_flag`
+- Skin prefix extracted from `#game` class `skin_{name}` (e.g. `hdd`, `xp`, `nn`)
+- State suffix mapping: `closed`, `flag`, `pressed`, `type0`–`type8` (numbers), `type10` (mine), `type11` (blast), `type12` (wrong flag)
+- Game end: detected via MutationObserver on `#top_area_face` class changes (`*-face-win`, `*-face-lose`)
+- Mine counter: digit classes on `#top_area_mines_100/10/1`
 
 ## Build System
 - **esbuild** bundles TypeScript into self-contained JS files in `dist/`.
@@ -54,7 +63,9 @@ src/
 ├── background/index.ts     — service worker (lifecycle, badge)
 ├── content/
 │   ├── index.ts            — content script entry, message handling, recorder lifecycle
-│   └── siteAdapters.ts     — SiteAdapter interface and registry (no adapters yet)
+│   ├── siteAdapters.ts     — SiteAdapter interface and registry
+│   └── adapters/
+│       └── minesweeperOnline.ts — adapter for minesweeper.online
 ├── popup/
 │   ├── popup.html          — popup markup
 │   ├── popup.css           — popup styles
@@ -81,4 +92,4 @@ Reference docs live in `docs/`:
 - **rawvf spec.md** — the RAWVF file format grammar and field definitions
 
 ## Current Status
-Infrastructure is complete. Next step is implementing the first `SiteAdapter` for a specific minesweeper website.
+First site adapter (minesweeper.online) is implemented. Next steps: end-to-end testing, verifying RAWVF output correctness.
