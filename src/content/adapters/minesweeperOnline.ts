@@ -190,18 +190,9 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       const cells = document.querySelectorAll('#AreaBlock .cell')
       if (cells.length === 0) return null
 
-      let maxX = 0
-      let maxY = 0
-
-      for (const cell of cells) {
-        const x = parseInt(cell.getAttribute('data-x') ?? '0', 10)
-        const y = parseInt(cell.getAttribute('data-y') ?? '0', 10)
-        if (x > maxX) maxX = x
-        if (y > maxY) maxY = y
-      }
-
-      const cols = maxX + 1
-      const rows = maxY + 1
+      const lastCell = cells[cells.length - 1]
+      const cols = parseInt(lastCell.getAttribute('data-x') ?? '0', 10) + 1
+      const rows = parseInt(lastCell.getAttribute('data-y') ?? '0', 10) + 1
       const mines = readMineCounter(skinPrefix()) ?? 0
       const squareSize = getCellSize()
 
@@ -231,22 +222,17 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
     },
 
     getMinePositions(): BoardPosition[] {
-      // Mine positions are only visible after a loss (type10 = mine, type11 = blast mine)
+      // All Mine positions are revealed after game ends 
+      // type10 = mine, 
+      // type11 = blast mine,
+      // type12 = wrong flag (not a mine)
       const prefix = skinPrefix()
       const mines: BoardPosition[] = []
 
       const cells = document.querySelectorAll('#AreaBlock .cell')
       for (const cell of cells) {
         const suffix = extractStateSuffix(cell, prefix)
-        if (suffix === 'type10' || suffix === 'type11') {
-          const pos = adapter.extractCellPosition(cell)
-          if (pos) {
-            mines.push(pos)
-          }
-        }
-        // Also count flagged cells as potential mines (flags on correct positions)
-        // But only after game end, when flags are validated
-        if (suffix === 'flag') {
+        if (suffix === 'type10' || suffix === 'type11' || suffix === 'flag') {  // flags included, because wins reveal mines as flags.
           const pos = adapter.extractCellPosition(cell)
           if (pos) {
             mines.push(pos)

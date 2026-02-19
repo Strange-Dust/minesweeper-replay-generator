@@ -99,7 +99,7 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
       program: adapter.getProgramName(),
       version: adapter.getVersion?.(),
       player: playerName,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(), 
       questionMarks: false,
     },
     mouseTrackerConfig: {
