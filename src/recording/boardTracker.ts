@@ -111,7 +111,7 @@ export class BoardTracker {
 
     this.observer.observe(this.boardElement, {
       attributes: true,
-      attributeFilter: ['class', 'data-state', 'data-mine', 'style'],
+      attributeFilter: ['class', 'data-state', 'style'],
       subtree: true,
       childList: true,
     })

@@ -57,7 +57,6 @@ export class MouseTracker {
   private handleMouseDown: (event: MouseEvent) => void
   private handleMouseUp: (event: MouseEvent) => void
   private handleMouseMove: (event: MouseEvent) => void
-  private handleContextMenu: (event: MouseEvent) => void
 
   constructor(config: MouseTrackerConfig) {
     this.boardElement = config.boardElement
@@ -69,7 +68,6 @@ export class MouseTracker {
     this.handleMouseDown = this.onMouseDown.bind(this)
     this.handleMouseUp = this.onMouseUp.bind(this)
     this.handleMouseMove = this.onMouseMove.bind(this)
-    this.handleContextMenu = this.onContextMenu.bind(this)
   }
 
   /**
@@ -83,10 +81,9 @@ export class MouseTracker {
     this.isTracking = true
     this.lastMoveTime = 0
 
-    this.boardElement.addEventListener('mousedown', this.handleMouseDown, true)
-    this.boardElement.addEventListener('mouseup', this.handleMouseUp, true)
-    this.boardElement.addEventListener('mousemove', this.handleMouseMove, true)
-    this.boardElement.addEventListener('contextmenu', this.handleContextMenu, true)
+    this.boardElement.addEventListener('mousedown', this.handleMouseDown)
+    this.boardElement.addEventListener('mouseup', this.handleMouseUp)
+    this.boardElement.addEventListener('mousemove', this.handleMouseMove)
   }
 
   /**
@@ -97,10 +94,9 @@ export class MouseTracker {
 
     this.isTracking = false
 
-    this.boardElement.removeEventListener('mousedown', this.handleMouseDown, true)
-    this.boardElement.removeEventListener('mouseup', this.handleMouseUp, true)
-    this.boardElement.removeEventListener('mousemove', this.handleMouseMove, true)
-    this.boardElement.removeEventListener('contextmenu', this.handleContextMenu, true)
+    this.boardElement.removeEventListener('mousedown', this.handleMouseDown)
+    this.boardElement.removeEventListener('mouseup', this.handleMouseUp)
+    this.boardElement.removeEventListener('mousemove', this.handleMouseMove)
   }
 
   /**
@@ -170,14 +166,6 @@ export class MouseTracker {
     }
 
     this.emitEvent('mv', domEvent)
-  }
-
-  private onContextMenu(domEvent: MouseEvent): void {
-    // Prevent the browser context menu from appearing during recording,
-    // since right-clicks are used for flagging in minesweeper.
-    if (this.isTracking) {
-      domEvent.preventDefault()
-    }
   }
 
   // --------------------------------------------------------------------------

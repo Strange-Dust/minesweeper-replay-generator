@@ -223,6 +223,12 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
     },
 
     getMinePositions(result?: GameResult): BoardPosition[] {
+      // Guard: only read mine positions after a game has ended.
+      // During gameplay, cell classes don't reliably indicate mine locations.
+      if (!result || detectFaceState() === null) {
+        return []
+      }
+
       // After a loss: type10 = mine, type11 = blast mine, flag = player-flagged mine
       // After a win: all non-mine cells are opened, so any cell still 'closed'
       //   or 'flag' is a mine. We must include 'closed' because the site's
