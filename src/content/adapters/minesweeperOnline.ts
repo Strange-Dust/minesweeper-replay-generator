@@ -160,6 +160,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
   // Cache the skin prefix to avoid re-querying on every cell state extraction
   let cachedSkinPrefix: string | null = null
   let faceObserver: MutationObserver | null = null
+  let resetObserver: MutationObserver | null = null
 
   function skinPrefix(): string {
     if (!cachedSkinPrefix) {
@@ -270,6 +271,42 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
         attributes: true,
         attributeFilter: ['class'],
       })
+    },
+
+    onBoardReset(callback) {
+      // Watch the face element for the win/lose class to DISAPPEAR,
+      // which indicates the player has started a new game.
+      // After a game ends, the face shows win/lose. When the user clicks
+      // the face or a cell to start a new game, the face returns to neutral.
+      const face = document.querySelector('#top_area_face')
+      if (!face) return
+
+      if (resetObserver) {
+        resetObserver.disconnect()
+      }
+
+      resetObserver = new MutationObserver(() => {
+        const state = detectFaceState()
+        if (!state) {
+          // Face no longer shows win/lose — board is resetting
+          resetObserver?.disconnect()
+          resetObserver = null
+          // Wait a frame for the DOM to fully settle (cells reset too)
+          requestAnimationFrame(() => callback())
+        }
+      })
+
+      resetObserver.observe(face, {
+        attributes: true,
+        attributeFilter: ['class'],
+      })
+    },
+
+    cancelBoardReset() {
+      if (resetObserver) {
+        resetObserver.disconnect()
+        resetObserver = null
+      }
     },
   }
 

@@ -53,9 +53,11 @@ export interface GetRecordingDataMessage {
 
 export interface StatusResponse {
   state: RecordingState
-  /** Number of events recorded so far */
+  /** Number of completed games in the current session */
+  gameCount: number
+  /** Number of events recorded in the current game */
   eventCount: number
-  /** Elapsed time in ms (if recording) */
+  /** Elapsed time in ms for the current game */
   elapsedMs?: number
 }
 

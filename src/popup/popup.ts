@@ -2,16 +2,30 @@
  * Popup script for Minesweeper Replay Generator.
  *
  * Communicates with the content script in the active tab to:
- *   - Start/stop recording
- *   - Display recording status
- *   - Download the generated .rawvf file
+ *   - Start/stop a multi-game recording session
+ *   - Display recording status (state, game count, events, time)
+ *   - Download recorded replays (.rawvf or .zip for multiple)
  */
 
 import browser from '../utils/browser'
 import type { StatusResponse } from '../types/messages'
+import { createZipBlob } from '../utils/zip'
 
+// --------------------------------------------------------------------------
+// Types
+// --------------------------------------------------------------------------
+
+interface CompletedGame {
+  rawvf: string
+  filename: string
+}
+
+// --------------------------------------------------------------------------
 // DOM elements
+// --------------------------------------------------------------------------
+
 const statusText = document.getElementById('status-text') as HTMLSpanElement
+const gameCount = document.getElementById('game-count') as HTMLSpanElement
 const eventCount = document.getElementById('event-count') as HTMLSpanElement
 const elapsedTime = document.getElementById('elapsed-time') as HTMLSpanElement
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement
@@ -42,7 +56,7 @@ async function init(): Promise<void> {
   // Button handlers
   btnStart.addEventListener('click', startRecording)
   btnStop.addEventListener('click', stopRecording)
-  btnDownload.addEventListener('click', downloadReplay)
+  btnDownload.addEventListener('click', downloadReplays)
 
   // Get initial status
   await refreshStatus()
@@ -87,19 +101,35 @@ async function stopRecording(): Promise<void> {
   await refreshStatus()
 }
 
-async function downloadReplay(): Promise<void> {
-  const response = await sendToContentScript({ type: 'GET_RECORDING_DATA' }) as { rawvf?: string; filename?: string } | null
-  if (!response?.rawvf) {
+async function downloadReplays(): Promise<void> {
+  const response = await sendToContentScript({ type: 'GET_RECORDING_DATA' }) as { games?: CompletedGame[] } | null
+  if (!response?.games?.length) {
     console.error('No recording data available')
     return
   }
 
-  // Trigger download
-  const blob = new Blob([response.rawvf], { type: 'text/plain' })
+  const games = response.games
+
+  if (games.length === 1) {
+    // Single game — download as .rawvf directly
+    const game = games[0]!
+    const blob = new Blob([game.rawvf], { type: 'text/plain' })
+    triggerDownload(blob, game.filename)
+  } else {
+    // Multiple games — bundle into a .zip
+    const zipBlob = createZipBlob(
+      games.map(g => ({ filename: g.filename, content: g.rawvf }))
+    )
+    const dateStr = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15).replace(/(\d{8})(\d{6})/, '$1_$2')
+    triggerDownload(zipBlob, `minesweeper_replays_${dateStr}.zip`)
+  }
+}
+
+function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = response.filename ?? 'replay.rawvf'
+  anchor.download = filename
   anchor.click()
   URL.revokeObjectURL(url)
 }
@@ -117,7 +147,7 @@ async function refreshStatus(): Promise<void> {
 
 function startPolling(): void {
   if (pollingInterval) return
-  pollingInterval = setInterval(refreshStatus, 500) // TODO: this might be a bit low, 500ms is pretty long and people reset fast
+  pollingInterval = setInterval(refreshStatus, 500)
 }
 
 function stopPolling(): void {
@@ -139,13 +169,21 @@ function updateUI(status: StatusResponse): void {
   statusText.className = `status ${status.state}`
 
   // Update counters
+  gameCount.textContent = String(status.gameCount)
   eventCount.textContent = String(status.eventCount)
   elapsedTime.textContent = formatTime(status.elapsedMs ?? 0)
 
   // Update button states
   btnStart.disabled = status.state === 'recording' || status.state === 'ready'
   btnStop.disabled = status.state !== 'recording' && status.state !== 'ready'
-  btnDownload.disabled = status.state !== 'finished'
+  btnDownload.disabled = status.state !== 'finished' || status.gameCount === 0
+
+  // Dynamic download button text
+  if (status.gameCount <= 1) {
+    btnDownload.textContent = '\uD83D\uDCBE Download .rawvf'
+  } else {
+    btnDownload.textContent = `\uD83D\uDCBE Download ${status.gameCount} replays (.zip)`
+  }
 
   // Auto-start/stop polling based on state
   if (status.state === 'recording' || status.state === 'ready') {

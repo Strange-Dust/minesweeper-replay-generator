@@ -5,8 +5,13 @@
  *
  * This is the main entry point that:
  *   1. Listens for messages from the popup (start/stop/status)
- *   2. Manages the GameRecorder lifecycle
+ *   2. Manages a multi-game recording session
  *   3. Routes recording data back to the popup for download
+ *
+ * Session lifecycle:
+ *   - User clicks "Start" → session begins, first game recorder created
+ *   - Game ends → RAWVF stored, watch for board reset → new recorder → repeat
+ *   - User clicks "Stop" → session ends, all replays available for download
  *
  * Site-specific board detection is handled by "site adapters" — each adapter
  * knows how to find the board, extract cell states, and detect game results
@@ -14,22 +19,41 @@
  */
 
 import browser from '../utils/browser'
-import type { RecordingState, RecordingData, GameResult } from '../types/rawvf'
+import type { RecordingState, GameResult } from '../types/rawvf'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
 import { generateRawvf, generateFilename } from '../rawvf/writer'
 import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
 
 // --------------------------------------------------------------------------
+// Types
+// --------------------------------------------------------------------------
+
+export interface CompletedGame {
+  rawvf: string
+  filename: string
+}
+
+// --------------------------------------------------------------------------
 // State
 // --------------------------------------------------------------------------
 
+/** Whether a multi-game session is currently active */
+let sessionActive = false
+
+/** Adapter for the current session (set once at session start) */
+let currentAdapter: SiteAdapter | null = null
+
+/** Games completed and finalized during this session */
+let completedGames: CompletedGame[] = []
+
+/** Current game recorder (one per game, recreated between games) */
 let recorder: GameRecorder | null = null
-let lastRecordingData: RecordingData | null = null
-let lastRawvf: string | null = null
-let lastFilename: string | null = null
+
+/** State exposed to the popup via GET_STATUS */
 let currentState: RecordingState = 'idle'
-let lastGameResult: GameResult = 'unknown'
+
+/** Player name for replay metadata */
 let playerName: string | undefined
 
 // --------------------------------------------------------------------------
@@ -41,11 +65,11 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
   switch (msg.type) {
     case 'START_RECORDING':
       playerName = msg.playerName
-      return handleStartRecording()
+      return handleStartSession()
         .catch((err) => ({ error: String(err) }))
 
     case 'STOP_RECORDING':
-      handleStopRecording()
+      handleStopSession()
       return Promise.resolve({ success: true })
 
     case 'GET_STATUS':
@@ -57,11 +81,14 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
 })
 
 // --------------------------------------------------------------------------
-// Recording control
+// Session control
 // --------------------------------------------------------------------------
 
-async function handleStartRecording(): Promise<{ success: boolean; error?: string }> {
-  // Detect which minesweeper site we're on
+/**
+ * Start a new multi-game recording session.
+ * Detects the site adapter, validates the board, and begins recording.
+ */
+async function handleStartSession(): Promise<{ success: boolean; error?: string }> {
   const adapter = detectSiteAdapter()
   if (!adapter) {
     return {
@@ -70,7 +97,6 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
     }
   }
 
-  // Find the board element
   const boardElement = adapter.findBoardElement()
   if (!boardElement) {
     return {
@@ -79,7 +105,6 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
     }
   }
 
-  // Get board configuration
   const boardConfig = adapter.getBoardConfig()
   if (!boardConfig) {
     return {
@@ -88,19 +113,71 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
     }
   }
 
-  // Reset any previous recording
-  lastRecordingData = null
-  lastRawvf = null
-  lastFilename = null
+  // Initialize session
+  sessionActive = true
+  currentAdapter = adapter
+  completedGames = []
 
-  // Create the recorder
+  // Start the first game
+  startNextGame(adapter)
+
+  return { success: true }
+}
+
+/**
+ * Stop the current session. Aborts any in-progress game and makes
+ * all completed replays available for download.
+ */
+function handleStopSession(): void {
+  sessionActive = false
+
+  // Cancel any pending board reset watcher
+  currentAdapter?.cancelBoardReset?.()
+
+  // If a game is currently in progress, abort it
+  if (recorder) {
+    const state = recorder.getState()
+    if (state === 'recording') {
+      // Game was in progress — abort and try to salvage the recording
+      recorder.abort()
+      finalizeCurrentGame(currentAdapter, 'unknown')
+    } else if (state === 'ready') {
+      // Game hadn't started yet — just clean up
+      recorder.abort()
+      recorder = null
+    }
+  }
+
+  currentState = completedGames.length > 0 ? 'finished' : 'idle'
+}
+
+// --------------------------------------------------------------------------
+// Per-game lifecycle
+// --------------------------------------------------------------------------
+
+/**
+ * Set up and start a new game recorder within the active session.
+ * Called at session start and after each board reset.
+ */
+function startNextGame(adapter: SiteAdapter): void {
+  // Get fresh board config (user might have changed difficulty between games)
+  const boardElement = adapter.findBoardElement()
+  const boardConfig = adapter.getBoardConfig()
+  if (!boardElement || !boardConfig) {
+    // Board disappeared — end the session gracefully
+    sessionActive = false
+    currentState = completedGames.length > 0 ? 'finished' : 'idle'
+    return
+  }
+
+  // Create a new recorder for this game
   recorder = new GameRecorder({
     board: boardConfig,
     metadata: {
       program: adapter.getProgramName(),
       version: adapter.getVersion?.(),
       player: playerName,
-      timestamp: new Date().toISOString(), 
+      timestamp: new Date().toISOString(),
       questionMarks: false,
     },
     mouseTrackerConfig: {
@@ -114,48 +191,45 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
       extractCellPosition: adapter.extractCellPosition,
     },
     onStateChange: (state) => {
+      // In multi-game mode, don't expose individual game 'finished' to the popup.
+      // The session manages the transition from game-finished → ready-for-next.
+      if (sessionActive && state === 'finished') return
       currentState = state
-
-      if (state === 'finished') {
-        finalizeRecording(adapter, lastGameResult)
-      }
     },
   })
 
-  // Set up game result detection
+  // Set up game end detection
   adapter.onGameEnd?.((result) => {
     if (recorder && recorder.getState() === 'recording') {
-      lastGameResult = result
-      // Try to get mine positions when game ends
+      // Capture mine positions before finishing
       const mines = adapter.getMinePositions?.(result)
       if (mines) {
         recorder.setMinePositions(mines)
       }
       recorder.finish(result)
+
+      // Finalize and store the completed game
+      finalizeCurrentGame(adapter, result)
+
+      // If session is still active, prepare for the next game
+      if (sessionActive) {
+        waitForNextGame(adapter)
+      }
     }
   })
 
-  // Start the recorder
+  // Start the recorder (enters 'ready' state, waiting for first click)
   recorder.start()
   currentState = 'ready'
-
-  return { success: true }
 }
 
-function handleStopRecording(): void {
+/**
+ * Extract recording data from the current game and add it to completedGames.
+ */
+function finalizeCurrentGame(adapter: SiteAdapter | null, result: GameResult): void {
   if (!recorder) return
 
-  const state = recorder.getState()
-  if (state === 'recording' || state === 'ready') {
-    recorder.abort()
-    finalizeRecording(detectSiteAdapter(), 'unknown')
-  }
-}
-
-function finalizeRecording(adapter: SiteAdapter | null, result: GameResult): void {
-  if (!recorder) return
-
-  // Try to get mine positions if we don't have them yet
+  // Belt-and-suspenders: try to get mine positions if not already set
   if (adapter) {
     const mines = adapter.getMinePositions?.(result)
     if (mines && mines.length > 0) {
@@ -163,13 +237,29 @@ function finalizeRecording(adapter: SiteAdapter | null, result: GameResult): voi
     }
   }
 
-  lastRecordingData = recorder.getRecordingData()
-  if (lastRecordingData) {
-    lastRawvf = generateRawvf(lastRecordingData)
-    lastFilename = generateFilename(lastRecordingData)
+  const data = recorder.getRecordingData()
+  if (data) {
+    const rawvf = generateRawvf(data)
+    const filename = generateFilename(data)
+    completedGames.push({ rawvf, filename })
   }
 
-  currentState = 'finished'
+  recorder = null
+}
+
+/**
+ * After a game ends, watch for the board to reset (player starts a new game).
+ * When detected, automatically start recording the next game.
+ */
+function waitForNextGame(adapter: SiteAdapter): void {
+  // Show 'ready' while waiting for the next game
+  currentState = 'ready'
+
+  adapter.onBoardReset?.(() => {
+    if (sessionActive) {
+      startNextGame(adapter)
+    }
+  })
 }
 
 // --------------------------------------------------------------------------
@@ -179,15 +269,12 @@ function finalizeRecording(adapter: SiteAdapter | null, result: GameResult): voi
 function getStatus(): StatusResponse {
   return {
     state: currentState,
+    gameCount: completedGames.length,
     eventCount: recorder?.getEventCount() ?? 0,
     elapsedMs: recorder?.getElapsedMs() ?? 0,
   }
 }
 
-function getRecordingDataResponse(): { rawvf?: string; filename?: string } {
-  if (!lastRawvf) return {}
-  return {
-    rawvf: lastRawvf,
-    filename: lastFilename ?? 'replay.rawvf',
-  }
+function getRecordingDataResponse(): { games: CompletedGame[] } {
+  return { games: completedGames }
 }

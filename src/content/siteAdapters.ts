@@ -86,6 +86,18 @@ export interface SiteAdapter {
    * The callback should be called with the game result when the game ends.
    */
   onGameEnd?(callback: (result: GameResult) => void): void
+
+  /**
+   * Watch for the board to reset to a fresh game state after a game has ended.
+   * Used in multi-game sessions to detect when the player starts a new game.
+   * The callback fires once when the board resets, then the watcher is cleaned up.
+   */
+  onBoardReset?(callback: () => void): void
+
+  /**
+   * Cancel a pending board reset watcher set up by onBoardReset.
+   */
+  cancelBoardReset?(): void
 }
 
 // ============================================================================
