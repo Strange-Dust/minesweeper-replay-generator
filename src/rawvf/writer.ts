@@ -72,7 +72,7 @@ function buildDescription(recording: RecordingData): string {
   const { board, metadata, result, totalTimeMs } = recording
   const lines: string[] = []
 
-  lines.push('RawVF_Version: Rev6.1')
+  lines.push('RawVF_Version: Rev6.2')
   lines.push(`Program: ${metadata.program}`)
 
   if (metadata.version) {
@@ -114,7 +114,7 @@ function buildDescription(recording: RecordingData): string {
   }
 
   // Mode
-  lines.push('Mode: Classic')
+  lines.push('Mode: Classic')   // not sure if it matters to have cheat for "SuperClick" (L-Chord)
 
   return lines.join('\n')
 }

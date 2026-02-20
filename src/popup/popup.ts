@@ -117,7 +117,7 @@ async function refreshStatus(): Promise<void> {
 
 function startPolling(): void {
   if (pollingInterval) return
-  pollingInterval = setInterval(refreshStatus, 500)
+  pollingInterval = setInterval(refreshStatus, 500) // TODO: this might be a bit low, 500ms is pretty long and people reset fast
 }
 
 function stopPolling(): void {
