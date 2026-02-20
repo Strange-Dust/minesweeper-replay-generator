@@ -74,8 +74,12 @@ export interface SiteAdapter {
    * Get mine positions from the DOM (if available).
    * Usually only available after the game ends and mines are revealed.
    * Returns empty array if mine positions cannot be determined.
+   *
+   * @param result — The game result. On a win, cells still in 'closed' state
+   *   are guaranteed to be mines (all non-mines have been opened), so adapters
+   *   should include them even if the site hasn't animated them to flags yet.
    */
-  getMinePositions?(): BoardPosition[]
+  getMinePositions?(result?: GameResult): BoardPosition[]
 
   /**
    * Register a callback for game end detection.

@@ -30,7 +30,7 @@
  */
 
 import type { SiteAdapter } from '../siteAdapters'
-import type { BoardConfig, BoardPosition, BoardEventCode } from '../../types/rawvf'
+import type { BoardConfig, BoardPosition, BoardEventCode, GameResult } from '../../types/rawvf'
 
 // Map of cell state suffixes to RAWVF board event codes
 const STATE_MAP: Record<string, BoardEventCode> = {
@@ -221,18 +221,21 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       }
     },
 
-    getMinePositions(): BoardPosition[] {
-      // All Mine positions are revealed after game ends 
-      // type10 = mine, 
-      // type11 = blast mine,
-      // type12 = wrong flag (not a mine)
+    getMinePositions(result?: GameResult): BoardPosition[] {
+      // After a loss: type10 = mine, type11 = blast mine, flag = player-flagged mine
+      // After a win: all non-mine cells are opened, so any cell still 'closed'
+      //   or 'flag' is a mine. We must include 'closed' because the site's
+      //   auto-flag animation may not have run yet when this is called.
       const prefix = skinPrefix()
       const mines: BoardPosition[] = []
 
       const cells = document.querySelectorAll('#AreaBlock .cell')
       for (const cell of cells) {
         const suffix = extractStateSuffix(cell, prefix)
-        if (suffix === 'type10' || suffix === 'type11' || suffix === 'flag') {  // flags included, because wins reveal mines as flags.
+        const isMine =
+          suffix === 'type10' || suffix === 'type11' || suffix === 'flag' ||
+          (result === 'won' && suffix === 'closed')
+        if (isMine) {
           const pos = adapter.extractCellPosition(cell)
           if (pos) {
             mines.push(pos)

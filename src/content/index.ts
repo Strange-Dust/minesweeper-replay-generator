@@ -14,7 +14,7 @@
  */
 
 import browser from '../utils/browser'
-import type { RecordingState, RecordingData } from '../types/rawvf'
+import type { RecordingState, RecordingData, GameResult } from '../types/rawvf'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
 import { generateRawvf, generateFilename } from '../rawvf/writer'
@@ -29,6 +29,7 @@ let lastRecordingData: RecordingData | null = null
 let lastRawvf: string | null = null
 let lastFilename: string | null = null
 let currentState: RecordingState = 'idle'
+let lastGameResult: GameResult = 'unknown'
 let playerName: string | undefined
 
 // --------------------------------------------------------------------------
@@ -116,7 +117,7 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
       currentState = state
 
       if (state === 'finished') {
-        finalizeRecording(adapter)
+        finalizeRecording(adapter, lastGameResult)
       }
     },
   })
@@ -124,8 +125,9 @@ async function handleStartRecording(): Promise<{ success: boolean; error?: strin
   // Set up game result detection
   adapter.onGameEnd?.((result) => {
     if (recorder && recorder.getState() === 'recording') {
+      lastGameResult = result
       // Try to get mine positions when game ends
-      const mines = adapter.getMinePositions?.()
+      const mines = adapter.getMinePositions?.(result)
       if (mines) {
         recorder.setMinePositions(mines)
       }
@@ -146,16 +148,16 @@ function handleStopRecording(): void {
   const state = recorder.getState()
   if (state === 'recording' || state === 'ready') {
     recorder.abort()
-    finalizeRecording(detectSiteAdapter())
+    finalizeRecording(detectSiteAdapter(), 'unknown')
   }
 }
 
-function finalizeRecording(adapter: SiteAdapter | null): void {
+function finalizeRecording(adapter: SiteAdapter | null, result: GameResult): void {
   if (!recorder) return
 
   // Try to get mine positions if we don't have them yet
   if (adapter) {
-    const mines = adapter.getMinePositions?.()
+    const mines = adapter.getMinePositions?.(result)
     if (mines && mines.length > 0) {
       recorder.setMinePositions(mines)
     }
