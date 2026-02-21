@@ -184,12 +184,6 @@ function startNextGame(adapter: SiteAdapter): void {
       boardElement,
       squareSize: boardConfig.squareSize,
     },
-    boardTrackerConfig: {
-      boardElement,
-      cellSelector: adapter.getCellSelector(),
-      extractCellState: adapter.extractCellState,
-      extractCellPosition: adapter.extractCellPosition,
-    },
     onStateChange: (state) => {
       // In multi-game mode, don't expose individual game 'finished' to the popup.
       // The session manages the transition from game-finished → ready-for-next.
@@ -239,6 +233,9 @@ function finalizeCurrentGame(adapter: SiteAdapter | null, result: GameResult): v
 
   const data = recorder.getRecordingData()
   if (data) {
+    // Derive mine count from the actual mine positions found
+    data.board.mines = data.minePositions.length
+
     const rawvf = generateRawvf(data)
     const filename = generateFilename(data)
     completedGames.push({ rawvf, filename })

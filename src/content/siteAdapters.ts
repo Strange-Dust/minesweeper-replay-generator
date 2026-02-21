@@ -4,7 +4,6 @@
  * Each site adapter knows how to interact with a specific minesweeper website:
  *   - Find the board element in the DOM
  *   - Extract board configuration (dimensions, mine count, cell size)
- *   - Read cell states from DOM elements
  *   - Detect game results (win/loss)
  *   - Extract mine positions (when revealed)
  *
@@ -15,7 +14,7 @@
  * Coordinate convention: all positions are (row, col), 0-indexed.
  */
 
-import type { BoardConfig, BoardPosition, BoardEventCode, GameResult } from '../types/rawvf'
+import type { BoardConfig, BoardPosition, GameResult } from '../types/rawvf'
 import { createMinesweeperOnlineAdapter } from './adapters/minesweeperOnline'
 
 // ============================================================================
@@ -51,24 +50,6 @@ export interface SiteAdapter {
    * Returns null if the configuration cannot be determined.
    */
   getBoardConfig(): BoardConfig | null
-
-  /**
-   * CSS selector for individual cell elements within the board.
-   * Used by the BoardTracker to find and observe cells.
-   */
-  getCellSelector(): string
-
-  /**
-   * Extract the current state of a cell from its DOM element.
-   * Maps site-specific CSS classes/attributes to RAWVF board event codes.
-   */
-  extractCellState(cellElement: Element): BoardEventCode | null
-
-  /**
-   * Extract the (row, col) position from a cell DOM element.
-   * Coordinates should be 0-indexed.
-   */
-  extractCellPosition(cellElement: Element): { row: number; col: number } | null
 
   /**
    * Get mine positions from the DOM (if available).

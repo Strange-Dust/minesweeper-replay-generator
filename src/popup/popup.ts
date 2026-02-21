@@ -142,12 +142,17 @@ async function refreshStatus(): Promise<void> {
 }
 
 // --------------------------------------------------------------------------
-// Polling
+// Polling — periodically queries the content script for recording status
+// (state, game count, event count, elapsed time) to keep the popup UI current.
+// Win/loss detection is NOT done here — it's handled by MutationObservers
+// in the site adapter. This only refreshes the popup display.
 // --------------------------------------------------------------------------
+
+const POLL_INTERVAL_MS = 200
 
 function startPolling(): void {
   if (pollingInterval) return
-  pollingInterval = setInterval(refreshStatus, 500)
+  pollingInterval = setInterval(refreshStatus, POLL_INTERVAL_MS)
 }
 
 function stopPolling(): void {

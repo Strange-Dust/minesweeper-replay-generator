@@ -1,5 +1,5 @@
 /**
- * Game recorder — orchestrates mouse tracking, board observation, and RAWVF generation.
+ * Game recorder — orchestrates mouse tracking and RAWVF generation.
  *
  * This is the central coordinator that manages the lifecycle of a recording session:
  *   1. Idle → Ready: Board detected, waiting for game to start
@@ -7,7 +7,7 @@
  *   3. Recording → Finished: Game ends (win/loss) or user stops manually
  *   4. Finished → RAWVF export available
  *
- * The recorder collects events from the MouseTracker and BoardTracker,
+ * The recorder collects mouse events from the MouseTracker,
  * maintains the event timeline, and produces a RecordingData object
  * suitable for the RAWVF writer.
  */
@@ -15,17 +15,13 @@
 import type {
   BoardConfig,
   BoardPosition,
-  RecordedEvent,
   RecordedMouseEvent,
-  RecordedBoardEvent,
-  RecordedGameEvent,
   RecordingData,
   RecordingState,
   ReplayMetadata,
   GameResult,
 } from '../types/rawvf'
 import { MouseTracker, type MouseTrackerConfig } from './mouseTracker'
-import { BoardTracker, type BoardTrackerConfig } from './boardTracker'
 
 /**
  * Callback for recording state changes.
@@ -42,8 +38,6 @@ export interface RecorderConfig {
   minePositions?: BoardPosition[]
   /** Mouse tracker configuration (without onEvent — the recorder provides it) */
   mouseTrackerConfig: Omit<MouseTrackerConfig, 'onEvent'>
-  /** Board tracker configuration (without onEvent — the recorder provides it) */
-  boardTrackerConfig: Omit<BoardTrackerConfig, 'onEvent'>
   /** Replay metadata */
   metadata: ReplayMetadata
   /** Callback when recording state changes */
@@ -69,9 +63,8 @@ export class GameRecorder {
   private onStateChange?: StateChangeCallback
 
   private mouseTracker: MouseTracker
-  private boardTracker: BoardTracker
 
-  private events: RecordedEvent[] = []
+  private events: RecordedMouseEvent[] = []
   private gameStartTime: number = 0
   private gameEndTime: number = 0
   private result: GameResult = 'unknown'
@@ -86,12 +79,6 @@ export class GameRecorder {
     this.mouseTracker = new MouseTracker({
       ...config.mouseTrackerConfig,
       onEvent: (event) => this.onMouseEvent(event),
-    })
-
-    // Create board tracker with our event handler
-    this.boardTracker = new BoardTracker({
-      ...config.boardTrackerConfig,
-      onEvent: (event) => this.onBoardEvent(event),
     })
   }
 
@@ -148,9 +135,6 @@ export class GameRecorder {
 
     this.setState('ready')
 
-    // Start the board tracker immediately to capture the initial state
-    this.boardTracker.start()
-
     // Start the mouse tracker — will begin collecting events,
     // but we don't set gameStartTime until the first click
     this.mouseTracker.start(performance.now()) // temporary start time
@@ -168,17 +152,7 @@ export class GameRecorder {
       ? Math.round(performance.now() - this.gameStartTime)
       : 0
 
-    // Add game result event
-    const gameEventCode = result === 'won' ? 'won' : result === 'lost' ? 'boom' : 'nonstandard'
-    const gameEvent: RecordedGameEvent = {
-      type: 'game',
-      timeMs: this.gameEndTime,
-      event: gameEventCode,
-    }
-    this.events.push(gameEvent)
-
     this.mouseTracker.stop()
-    this.boardTracker.stop()
     this.setState('finished')
   }
 
@@ -187,7 +161,6 @@ export class GameRecorder {
    */
   abort(): void {
     this.mouseTracker.stop()
-    this.boardTracker.stop()
 
     if (this.state === 'recording') {
       this.gameEndTime = Math.round(performance.now() - this.gameStartTime)
@@ -202,7 +175,6 @@ export class GameRecorder {
    */
   reset(): void {
     this.mouseTracker.stop()
-    this.boardTracker.stop()
     this.events = []
     this.gameStartTime = 0
     this.gameEndTime = 0
@@ -241,14 +213,6 @@ export class GameRecorder {
       this.gameStartTime = performance.now()
       this.mouseTracker.start(this.gameStartTime)
 
-      // Add start event
-      const startEvent: RecordedGameEvent = {
-        type: 'game',
-        timeMs: 0,
-        event: 'start',
-      }
-      this.events.push(startEvent)
-
       // Re-emit this click with time 0
       const adjustedEvent: RecordedMouseEvent = {
         ...event,
@@ -261,12 +225,6 @@ export class GameRecorder {
     }
 
     if (this.state === 'recording') {
-      this.events.push(event)
-    }
-  }
-
-  private onBoardEvent(event: RecordedBoardEvent): void {
-    if (this.state === 'recording' || this.state === 'ready') {
       this.events.push(event)
     }
   }

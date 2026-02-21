@@ -30,26 +30,14 @@
  */
 
 import type { SiteAdapter } from '../siteAdapters'
-import type { BoardConfig, BoardPosition, BoardEventCode, GameResult } from '../../types/rawvf'
+import type { BoardConfig, BoardPosition, GameResult } from '../../types/rawvf'
 
-// Map of cell state suffixes to RAWVF board event codes
-const STATE_MAP: Record<string, BoardEventCode> = {
-  closed: 'closed',
-  flag: 'flag',
-  pressed: 'pressed',
-  type0: 'number0',
-  type1: 'number1',
-  type2: 'number2',
-  type3: 'number3',
-  type4: 'number4',
-  type5: 'number5',
-  type6: 'number6',
-  type7: 'number7',
-  type8: 'number8',
-  type10: 'closed',   // mine shown post-game — treat as closed for RAWVF
-  type11: 'blast',    // the mine that was clicked
-  type12: 'closed',   // wrong flag shown post-game — treat as closed for RAWVF
-}
+/** Known cell state suffixes — used to validate class names extracted from cell elements. */
+const VALID_CELL_SUFFIXES = new Set([
+  'closed', 'flag', 'pressed',
+  'type0', 'type1', 'type2', 'type3', 'type4', 'type5', 'type6', 'type7', 'type8',
+  'type10', 'type11', 'type12',
+])
 
 /**
  * Extract the active skin prefix from the #game element.
@@ -78,46 +66,12 @@ function extractStateSuffix(cellElement: Element, skinPrefix: string): string | 
     if (cls.startsWith(prefix)) {
       const suffix = cls.slice(prefix.length)
       // Skip non-state classes (e.g. hdd_closed_flag is a sub-skin class)
-      if (suffix in STATE_MAP) {
+      if (VALID_CELL_SUFFIXES.has(suffix)) {
         return suffix
       }
     }
   }
   return null
-}
-
-/**
- * Read the mine counter from the top panel digit elements.
- * Each digit element has a class like {skin}_top-area-num{digit}.
- */
-function readMineCounter(skinPrefix: string): number | null {
-  const elements = [
-    document.querySelector('#top_area_mines_100'),
-    document.querySelector('#top_area_mines_10'),
-    document.querySelector('#top_area_mines_1'),
-  ]
-
-  let total = 0
-  const multipliers = [100, 10, 1]
-
-  for (let i = 0; i < elements.length; i++) {
-    const el = elements[i]
-    if (!el) return null
-
-    let digit: number | null = null
-    for (const cls of el.classList) {
-      const match = cls.match(/top-area-num(\d)$/)
-      if (match) {
-        digit = parseInt(match[1], 10)
-        break
-      }
-    }
-
-    if (digit === null) return null
-    total += digit * multipliers[i]
-  }
-
-  return total
 }
 
 /**
@@ -150,6 +104,20 @@ function detectFaceState(): 'won' | 'lost' | null {
     if (cls.endsWith('-face-lose')) return 'lost'
   }
   return null
+}
+
+/**
+ * Extract the (row, col) position from a cell DOM element.
+ * data-x = column, data-y = row (0-indexed).
+ */
+function extractCellPosition(cellElement: Element): { row: number; col: number } | null {
+  const xAttr = cellElement.getAttribute('data-x')
+  const yAttr = cellElement.getAttribute('data-y')
+  if (xAttr === null || yAttr === null) return null
+  return {
+    col: parseInt(xAttr, 10),
+    row: parseInt(yAttr, 10),
+  }
 }
 
 // ============================================================================
@@ -194,32 +162,11 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       const lastCell = cells[cells.length - 1]
       const cols = parseInt(lastCell.getAttribute('data-x') ?? '0', 10) + 1
       const rows = parseInt(lastCell.getAttribute('data-y') ?? '0', 10) + 1
-      const mines = readMineCounter(skinPrefix()) ?? 0
       const squareSize = getCellSize()
 
-      return { cols, rows, mines, squareSize }
-    },
-
-    getCellSelector() {
-      return '.cell'
-    },
-
-    extractCellState(cellElement: Element): BoardEventCode | null {
-      const suffix = extractStateSuffix(cellElement, skinPrefix())
-      if (!suffix) return null
-      return STATE_MAP[suffix] ?? null
-    },
-
-    extractCellPosition(cellElement: Element): { row: number; col: number } | null {
-      const xAttr = cellElement.getAttribute('data-x')
-      const yAttr = cellElement.getAttribute('data-y')
-      if (xAttr === null || yAttr === null) return null
-
-      // data-x = column, data-y = row
-      return {
-        col: parseInt(xAttr, 10),
-        row: parseInt(yAttr, 10),
-      }
+      // Mine count is not read here — it is derived from mine positions
+      // after the game ends, keeping pre-game DOM reads to a minimum.
+      return { cols, rows, mines: 0, squareSize }
     },
 
     getMinePositions(result?: GameResult): BoardPosition[] {
@@ -243,7 +190,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
           suffix === 'type10' || suffix === 'type11' || suffix === 'flag' ||
           (result === 'won' && suffix === 'closed')
         if (isMine) {
-          const pos = adapter.extractCellPosition(cell)
+          const pos = extractCellPosition(cell)
           if (pos) {
             mines.push(pos)
           }
@@ -297,7 +244,8 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
           // Face no longer shows win/lose — board is resetting
           resetObserver?.disconnect()
           resetObserver = null
-          // Wait a frame for the DOM to fully settle (cells reset too)
+          // Read-only: wait one frame for cells to reset in the DOM
+          // before the callback reads fresh board config. No DOM writes.
           requestAnimationFrame(() => callback())
         }
       })

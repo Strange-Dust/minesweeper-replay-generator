@@ -6,7 +6,7 @@
  * RAWVF format structure:
  *   1. Description — key-value header lines (metadata, board config)
  *   2. Board — mine grid ('*' = mine, '0' = safe)
- *   3. Events — chronological mouse, board, and game events
+ *   3. Events — chronological mouse events
  *
  * Reference: rawvf spec.md (RawVF Rev6.1)
  */
@@ -14,8 +14,6 @@
 import type {
   RecordingData,
   RecordedMouseEvent,
-  RecordedBoardEvent,
-  RecordedGameEvent,
   LevelName,
 } from '../types/rawvf'
 
@@ -161,26 +159,14 @@ function buildBoard(recording: RecordingData): string {
  * Build the RAWVF events section from recorded events.
  *
  * Event format (from spec):
- *   Mouse:  <time> <event_code> <col_1indexed> <row_1indexed> (<pixel_x> <pixel_y>)
- *   Board:  <event_code> <col_1indexed> <row_1indexed>
- *   Game:   <time> <event_code>
+ *   Mouse: <time> <event_code> <col_1indexed> <row_1indexed> (<pixel_x> <pixel_y>)
  */
 function buildEvents(recording: RecordingData): string {
   const lines: string[] = ['Events:']
   const squareSize = recording.board.squareSize
 
   for (const event of recording.events) {
-    switch (event.type) {
-      case 'mouse':
-        lines.push(formatMouseEvent(event, squareSize))
-        break
-      case 'board':
-        lines.push(formatBoardEvent(event))
-        break
-      case 'game':
-        lines.push(formatGameEvent(event))
-        break
-    }
+    lines.push(formatMouseEvent(event, squareSize))
   }
 
   return lines.join('\n')
@@ -199,26 +185,6 @@ function formatMouseEvent(event: RecordedMouseEvent, squareSize: number): string
   const cellRow = pixelToCell1Indexed(event.y, squareSize)
 
   return `${time} ${event.event} ${cellCol} ${cellRow} (${event.x} ${event.y})`
-}
-
-/**
- * Format a board event as a RAWVF event line.
- *
- * Format: <event_code> <col_1indexed> <row_1indexed>
- *
- * Board event coordinates are converted from 0-indexed (internal) to 1-indexed (RAWVF).
- */
-function formatBoardEvent(event: RecordedBoardEvent): string {
-  return `${event.event} ${event.col + 1} ${event.row + 1}`
-}
-
-/**
- * Format a game event as a RAWVF event line.
- *
- * Format: <time> <event_code>
- */
-function formatGameEvent(event: RecordedGameEvent): string {
-  return `${formatRawvfTime(event.timeMs)} ${event.event}`
 }
 
 // ============================================================================
@@ -268,11 +234,11 @@ function getLevelName(cols: number, rows: number, mines: number): LevelName {
 function formatDateForFilename(timestamp?: string): string {
   if (!timestamp) {
     const now = new Date()
-    return now.toISOString().replace(/[-:T]/g, '').slice(0, 15).replace(/(\d{8})(\d{6})/, '$1_$2')
+    return now.toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, '').replace(/(\d{8})(\d{6})/, '$1_$2')
   }
   try {
     const date = new Date(timestamp)
-    return date.toISOString().replace(/[-:T]/g, '').slice(0, 15).replace(/(\d{8})(\d{6})/, '$1_$2')
+    return date.toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, '').replace(/(\d{8})(\d{6})/, '$1_$2')
   } catch {
     return 'unknown'
   }

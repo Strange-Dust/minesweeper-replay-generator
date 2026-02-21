@@ -4,7 +4,7 @@
  * RAWVF is a plain-text format containing:
  *   - Description: key-value header pairs (board config, player info, etc.)
  *   - Board: mine grid layout (* = mine, 0 = safe)
- *   - Events: mouse events, board events, and game events
+ *   - Events: mouse events
  *
  * Coordinate conventions:
  *   - Board positions use (row, col) — row always comes first
@@ -58,19 +58,6 @@ export interface BoardConfig {
 export type MouseEventCode = 'lc' | 'lr' | 'rc' | 'rr' | 'mc' | 'mr' | 'mv' | 'sc'
 
 /**
- * Board event codes for cell state changes.
- */
-export type BoardEventCode =
-  | 'number0' | 'number1' | 'number2' | 'number3' | 'number4'
-  | 'number5' | 'number6' | 'number7' | 'number8'
-  | 'closed' | 'flag' | 'pressed' | 'questionmark' | 'pressedqm' | 'blast'
-
-/**
- * Game-level event codes.
- */
-export type GameEventCode = 'start' | 'boom' | 'won' | 'nonstandard'
-
-/**
  * A recorded mouse event.
  */
 export interface RecordedMouseEvent {
@@ -84,36 +71,6 @@ export interface RecordedMouseEvent {
   /** Pixel Y coordinate relative to the board */
   y: number
 }
-
-/**
- * A recorded board event (cell state change).
- * Coordinates are 0-indexed internally.
- */
-export interface RecordedBoardEvent {
-  type: 'board'
-  /** Board event code (cell new state) */
-  event: BoardEventCode
-  /** Row (0-indexed) */
-  row: number
-  /** Column (0-indexed) */
-  col: number
-}
-
-/**
- * A recorded game event (start, win, loss).
- */
-export interface RecordedGameEvent {
-  type: 'game'
-  /** Time in milliseconds since the game started */
-  timeMs: number
-  /** Game event code */
-  event: GameEventCode
-}
-
-/**
- * Union of all recorded event types.
- */
-export type RecordedEvent = RecordedMouseEvent | RecordedBoardEvent | RecordedGameEvent
 
 // ============================================================================
 // Description / metadata types
@@ -162,8 +119,8 @@ export interface RecordingData {
   board: BoardConfig
   /** Mine positions (row, col), 0-indexed */
   minePositions: BoardPosition[]
-  /** All recorded events in chronological order */
-  events: RecordedEvent[]
+  /** All recorded mouse events in chronological order */
+  events: RecordedMouseEvent[]
   /** Metadata for the description header */
   metadata: ReplayMetadata
   /** Game result */

@@ -81,9 +81,12 @@ export class MouseTracker {
     this.isTracking = true
     this.lastMoveTime = 0
 
-    this.boardElement.addEventListener('mousedown', this.handleMouseDown)
-    this.boardElement.addEventListener('mouseup', this.handleMouseUp)
-    this.boardElement.addEventListener('mousemove', this.handleMouseMove)
+    // { passive: true } signals we will never call preventDefault(),
+    // documenting our passive-observation intent and causing a runtime
+    // error if someone accidentally adds preventDefault() in the future.
+    this.boardElement.addEventListener('mousedown', this.handleMouseDown, { passive: true })
+    this.boardElement.addEventListener('mouseup', this.handleMouseUp, { passive: true })
+    this.boardElement.addEventListener('mousemove', this.handleMouseMove, { passive: true })
   }
 
   /**
