@@ -148,7 +148,7 @@ async function refreshStatus(): Promise<void> {
 // in the site adapter. This only refreshes the popup display.
 // --------------------------------------------------------------------------
 
-const POLL_INTERVAL_MS = 200
+const POLL_INTERVAL_MS = 500
 
 function startPolling(): void {
   if (pollingInterval) return
