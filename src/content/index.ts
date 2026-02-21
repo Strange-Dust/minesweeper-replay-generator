@@ -118,6 +118,24 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
   currentAdapter = adapter
   completedGames = []
 
+  // Watch for board layout changes (difficulty switches) for the entire session.
+  // Unlike onBoardReset (per-game, one-shot), this persists across games.
+  adapter.onBoardChange?.(() => {
+    if (!sessionActive) return
+
+    // Board layout changed (user switched difficulty mid-game or between games).
+    // Abort any in-progress game and start fresh with the new board config.
+    if (recorder) {
+      recorder.abort()
+      recorder = null // Don't save — game was interrupted by difficulty change
+    }
+
+    // Cancel any pending board reset watcher from a completed game
+    adapter.cancelBoardReset?.()
+
+    startNextGame(adapter)
+  })
+
   // Start the first game
   startNextGame(adapter)
 
@@ -131,7 +149,8 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
 function handleStopSession(): void {
   sessionActive = false
 
-  // Cancel any pending board reset watcher
+  // Cancel all watchers
+  currentAdapter?.cancelBoardChange?.()
   currentAdapter?.cancelBoardReset?.()
 
   // If a game is currently in progress, abort it

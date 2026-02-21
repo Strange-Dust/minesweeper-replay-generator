@@ -129,6 +129,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
   let cachedSkinPrefix: string | null = null
   let faceObserver: MutationObserver | null = null
   let resetObserver: MutationObserver | null = null
+  let boardChangeObserver: MutationObserver | null = null
 
   function skinPrefix(): string {
     if (!cachedSkinPrefix) {
@@ -260,6 +261,35 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       if (resetObserver) {
         resetObserver.disconnect()
         resetObserver = null
+      }
+    },
+
+    onBoardChange(callback) {
+      // Watch #AreaBlock for child additions/removals. On minesweeper.online,
+      // changing difficulty replaces all .cell elements (childList mutation),
+      // while same-size restarts only change cell classes (no childList mutation).
+      // This distinguishes difficulty switches from normal game restarts.
+      const board = document.querySelector('#AreaBlock')
+      if (!board) return
+
+      if (boardChangeObserver) {
+        boardChangeObserver.disconnect()
+      }
+
+      boardChangeObserver = new MutationObserver(() => {
+        // Invalidate cached skin prefix — new board may have different skin
+        cachedSkinPrefix = null
+        // Read-only: wait one frame for new cells to fully render. No DOM writes.
+        requestAnimationFrame(() => callback())
+      })
+
+      boardChangeObserver.observe(board, { childList: true })
+    },
+
+    cancelBoardChange() {
+      if (boardChangeObserver) {
+        boardChangeObserver.disconnect()
+        boardChangeObserver = null
       }
     },
   }

@@ -79,6 +79,21 @@ export interface SiteAdapter {
    * Cancel a pending board reset watcher set up by onBoardReset.
    */
   cancelBoardReset?(): void
+
+  /**
+   * Watch for the board layout to change (e.g., user switched difficulty).
+   * Fires when cells are added/removed from the board, indicating a different
+   * board configuration. Does NOT fire for same-size restarts where cells
+   * only have their classes changed.
+   *
+   * Unlike onBoardReset (one-shot, per-game), this persists for the session.
+   */
+  onBoardChange?(callback: () => void): void
+
+  /**
+   * Cancel the board change watcher set up by onBoardChange.
+   */
+  cancelBoardChange?(): void
 }
 
 // ============================================================================
