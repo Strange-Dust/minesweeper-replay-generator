@@ -14,17 +14,18 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 
 ## Key Design Decisions
 
+### Passive observation only (extremely important)
+- The extension must NEVER modify game state, make network requests to the target site, auto-click, or provide unfair advantages.
+- Content script reads the DOM only. It must not inject visible UI into the page.
+- Mine positions should only be read AFTER being revealed, never before.
+- This is functionally equivalent to screen recording software.
+- It is of the utmost importance that this tool be ethical and benevolent.
+
 ### Cross-browser compatibility
 - Uses `webextension-polyfill` — always import from `src/utils/browser.ts`, never use `chrome.*` directly.
 - Message listeners return Promises (polyfill pattern) instead of using `sendResponse` callbacks.
 - Avoid Chrome-only APIs: no `offscreen`, careful with `storage.session`.
 - For page JS access, use `<script>` tag injection + `window.postMessage()` rather than `"world": "MAIN"` (Safari doesn't support it).
-
-### Passive observation only
-- The extension must NEVER modify game state, make network requests to the target site, auto-click, or provide unfair advantages.
-- Content script reads the DOM only. It does not inject visible UI into the page.
-- Mine positions should only be read AFTER being revealed, never before.
-- This is functionally equivalent to screen recording software.
 
 ### Coordinate conventions
 - Internal board positions: `(row, col)`, 0-indexed
@@ -49,7 +50,6 @@ The `SiteAdapter` interface in `src/content/siteAdapters.ts` defines what each a
 - Skin prefix extracted from `#game` class `skin_{name}` (e.g. `hdd`, `xp`, `nn`)
 - State suffix mapping: `closed`, `flag`, `pressed`, `type0`–`type8` (numbers), `type10` (mine), `type11` (blast), `type12` (wrong flag)
 - Game end: detected via MutationObserver on `#top_area_face` class changes (`*-face-win`, `*-face-lose`)
-- Mine counter: digit classes on `#top_area_mines_100/10/1`
 
 ## Build System
 - **esbuild** bundles TypeScript into self-contained JS files in `dist/`.
