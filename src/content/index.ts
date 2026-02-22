@@ -23,16 +23,8 @@ import type { RecordingState, GameResult } from '../types/rawvf'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
 import { generateRawvf, generateFilename } from '../rawvf/writer'
+import { saveGame } from '../storage/gameStorage'
 import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
-
-// --------------------------------------------------------------------------
-// Types
-// --------------------------------------------------------------------------
-
-export interface CompletedGame {
-  rawvf: string
-  filename: string
-}
 
 // --------------------------------------------------------------------------
 // State
@@ -44,8 +36,8 @@ let sessionActive = false
 /** Adapter for the current session (set once at session start) */
 let currentAdapter: SiteAdapter | null = null
 
-/** Games completed and finalized during this session */
-let completedGames: CompletedGame[] = []
+/** Number of games completed during the current session (for popup polling) */
+let sessionGameCount = 0
 
 /** Current game recorder (one per game, recreated between games) */
 let recorder: GameRecorder | null = null
@@ -74,9 +66,6 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
 
     case 'GET_STATUS':
       return Promise.resolve(getStatus())
-
-    case 'GET_RECORDING_DATA':
-      return Promise.resolve(getRecordingDataResponse())
   }
 })
 
@@ -116,7 +105,7 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
   // Initialize session
   sessionActive = true
   currentAdapter = adapter
-  completedGames = []
+  sessionGameCount = 0
 
   // Watch for board layout changes (difficulty switches) for the entire session.
   // Unlike onBoardReset (per-game, one-shot), this persists across games.
@@ -167,7 +156,7 @@ function handleStopSession(): void {
     }
   }
 
-  currentState = completedGames.length > 0 ? 'finished' : 'idle'
+  currentState = 'idle'
 }
 
 // --------------------------------------------------------------------------
@@ -185,7 +174,7 @@ function startNextGame(adapter: SiteAdapter): void {
   if (!boardElement || !boardConfig) {
     // Board disappeared — end the session gracefully
     sessionActive = false
-    currentState = completedGames.length > 0 ? 'finished' : 'idle'
+    currentState = 'idle'
     return
   }
 
@@ -257,7 +246,18 @@ function finalizeCurrentGame(adapter: SiteAdapter | null, result: GameResult): v
 
     const rawvf = generateRawvf(data)
     const filename = generateFilename(data)
-    completedGames.push({ rawvf, filename })
+    sessionGameCount++
+
+    // Persist to storage. Fire-and-forget: the popup polls and will pick it up.
+    saveGame({
+      filename,
+      timestamp: data.metadata.timestamp ?? new Date().toISOString(),
+      cols: data.board.cols,
+      rows: data.board.rows,
+      mines: data.board.mines,
+      result: data.result,
+      timeMs: data.totalTimeMs,
+    }, rawvf).catch(err => console.error('Failed to save replay to storage:', err))
   }
 
   recorder = null
@@ -285,12 +285,8 @@ function waitForNextGame(adapter: SiteAdapter): void {
 function getStatus(): StatusResponse {
   return {
     state: currentState,
-    gameCount: completedGames.length,
+    gameCount: sessionGameCount,
     eventCount: recorder?.getEventCount() ?? 0,
     elapsedMs: recorder?.getElapsedMs() ?? 0,
   }
-}
-
-function getRecordingDataResponse(): { games: CompletedGame[] } {
-  return { games: completedGames }
 }

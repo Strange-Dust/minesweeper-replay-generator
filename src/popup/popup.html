@@ -10,37 +10,47 @@
   <div class="popup-container">
     <h1 class="title">💣 Replay Generator</h1>
 
-    <div id="status-section" class="section">
-      <div class="status-row">
-        <span class="label">Status:</span>
+    <!-- Recording controls -->
+    <div id="recording-section" class="section">
+      <div class="recording-header">
         <span id="status-text" class="status idle">Idle</span>
+        <span id="live-stats" class="live-stats"></span>
       </div>
-      <div class="status-row">
-        <span class="label">Games:</span>
-        <span id="game-count">0</span>
-      </div>
-      <div class="status-row">
-        <span class="label">Events:</span>
-        <span id="event-count">0</span>
-      </div>
-      <div class="status-row">
-        <span class="label">Time:</span>
-        <span id="elapsed-time">0.000s</span>
+      <div class="recording-buttons">
+        <button id="btn-start" class="btn btn-primary" title="Start recording">
+          ⏺ Record
+        </button>
+        <button id="btn-stop" class="btn btn-danger" disabled title="Stop recording">
+          ⏹ Stop
+        </button>
       </div>
     </div>
 
-    <div id="controls-section" class="section">
-      <button id="btn-start" class="btn btn-primary" title="Start recording">
-        ⏺ Start Recording
-      </button>
-      <button id="btn-stop" class="btn btn-danger" disabled title="Stop recording">
-        ⏹ Stop
-      </button>
-      <button id="btn-download" class="btn btn-success" disabled title="Download .rawvf file">
-        💾 Download .rawvf
-      </button>
+    <!-- Game history -->
+    <div id="history-section" class="section">
+      <div class="history-header">
+        <label class="select-all-label" title="Select all">
+          <input type="checkbox" id="select-all" />
+          <span>Saved Replays</span>
+        </label>
+        <span id="storage-info" class="storage-info"></span>
+      </div>
+      <div id="game-list" class="game-list">
+        <div class="empty-state">No recorded games yet</div>
+      </div>
+      <div class="history-actions">
+        <button id="btn-download" class="btn btn-sm btn-success" disabled
+          title="Download selected replays">
+          💾 Download
+        </button>
+        <button id="btn-delete" class="btn btn-sm btn-outline-danger" disabled
+          title="Delete selected replays">
+          🗑 Delete
+        </button>
+      </div>
     </div>
 
+    <!-- Settings -->
     <div id="settings-section" class="section">
       <details>
         <summary>Settings</summary>
@@ -49,10 +59,6 @@
           <input type="text" id="player-name" placeholder="Anonymous" />
         </div>
       </details>
-    </div>
-
-    <div id="info-section" class="section info">
-      <p>Navigate to a minesweeper website, then click <strong>Start Recording</strong>. Games will be recorded automatically. Click <strong>Stop</strong> when done, then download your replays.</p>
     </div>
   </div>
 

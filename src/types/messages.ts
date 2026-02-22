@@ -43,10 +43,6 @@ export interface GetStatusMessage {
   type: 'GET_STATUS'
 }
 
-export interface GetRecordingDataMessage {
-  type: 'GET_RECORDING_DATA'
-}
-
 // ============================================================================
 // Background → Popup response messages
 // ============================================================================
@@ -70,7 +66,6 @@ export type PopupToContentMessage =
   | StartRecordingMessage
   | StopRecordingMessage
   | GetStatusMessage
-  | GetRecordingDataMessage
 
 /** Messages sent from content script to background */
 export type ContentToBackgroundMessage =

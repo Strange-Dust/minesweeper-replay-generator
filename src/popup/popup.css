@@ -11,8 +11,7 @@ body {
   font-size: 13px;
   color: #333;
   background: #f8f9fa;
-  min-width: 280px;
-  max-width: 320px;
+  width: 360px;
 }
 
 .popup-container {
@@ -31,19 +30,30 @@ body {
   margin-bottom: 10px;
 }
 
-/* Status display */
-.status-row {
+/* ---- Recording section ---- */
+
+.recording-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 3px 0;
+  margin-bottom: 6px;
 }
 
-.label {
-  font-weight: 500;
-  color: #555;
+.live-stats {
+  font-size: 11px;
+  color: #666;
 }
 
+.recording-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.recording-buttons .btn {
+  flex: 1;
+}
+
+/* Status badge */
 .status {
   font-weight: 600;
   text-transform: uppercase;
@@ -68,9 +78,9 @@ body {
   animation: pulse 1.5s infinite;
 }
 
-.status.finished {
-  background: #d4edda;
-  color: #155724;
+.status.unavailable {
+  background: #e9ecef;
+  color: #999;
 }
 
 @keyframes pulse {
@@ -78,16 +88,10 @@ body {
   50% { opacity: 0.6; }
 }
 
-/* Buttons */
-#controls-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* ---- Buttons ---- */
 
 .btn {
-  display: block;
-  width: 100%;
+  display: inline-block;
   padding: 8px 12px;
   border: none;
   border-radius: 6px;
@@ -95,6 +99,12 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: background-color 0.15s, opacity 0.15s;
+  text-align: center;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .btn:disabled {
@@ -126,7 +136,148 @@ body {
   background: #157347;
 }
 
-/* Settings */
+.btn-outline-danger {
+  background: transparent;
+  color: #dc3545;
+  border: 1px solid #dc3545;
+}
+.btn-outline-danger:hover:not(:disabled) {
+  background: #dc3545;
+  color: white;
+}
+
+/* ---- History section ---- */
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  color: #444;
+  cursor: pointer;
+}
+
+.storage-info {
+  font-size: 11px;
+  color: #888;
+}
+
+.game-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: white;
+}
+
+.empty-state {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+  font-size: 12px;
+}
+
+.game-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.game-item:last-child {
+  border-bottom: none;
+}
+
+.game-item:hover {
+  background: #f8f9fa;
+}
+
+.game-item input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.game-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.game-row-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.game-level {
+  font-weight: 600;
+  color: #333;
+  min-width: 32px;
+}
+
+.game-result {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.game-result.won {
+  background: #d4edda;
+  color: #155724;
+}
+
+.game-result.lost {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.game-result.unknown {
+  background: #e9ecef;
+  color: #6c757d;
+}
+
+.game-time {
+  color: #555;
+  margin-left: auto;
+}
+
+.game-size {
+  color: #999;
+  font-size: 11px;
+  min-width: 36px;
+  text-align: right;
+}
+
+.game-row-date {
+  font-size: 11px;
+  color: #999;
+  margin-top: 1px;
+}
+
+.history-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.history-actions .btn {
+  flex: 1;
+}
+
+/* ---- Settings ---- */
+
 details {
   border: 1px solid #dee2e6;
   border-radius: 6px;
@@ -157,14 +308,4 @@ summary {
   border: 1px solid #ced4da;
   border-radius: 4px;
   font-size: 12px;
-}
-
-/* Info */
-.info {
-  background: #e7f5ff;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  color: #1864ab;
-  line-height: 1.4;
 }
