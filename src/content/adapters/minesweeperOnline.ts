@@ -99,9 +99,11 @@ function detectFaceState(): 'won' | 'lost' | null {
   const face = document.querySelector('#top_area_face')
   if (!face) return null
 
+  // Different skins may use hyphens or underscores as separators
+  // (e.g. "hdd-face-win" vs "hdd_face_win"), so check both patterns.
   for (const cls of face.classList) {
-    if (cls.endsWith('-face-win')) return 'won'
-    if (cls.endsWith('-face-lose')) return 'lost'
+    if (cls.includes('face-win') || cls.includes('face_win')) return 'won'
+    if (cls.includes('face-lose') || cls.includes('face_lose')) return 'lost'
   }
   return null
 }
@@ -125,18 +127,9 @@ function extractCellPosition(cellElement: Element): { row: number; col: number }
 // ============================================================================
 
 export function createMinesweeperOnlineAdapter(): SiteAdapter {
-  // Cache the skin prefix to avoid re-querying on every cell state extraction
-  let cachedSkinPrefix: string | null = null
   let faceObserver: MutationObserver | null = null
   let resetObserver: MutationObserver | null = null
   let boardChangeObserver: MutationObserver | null = null
-
-  function skinPrefix(): string {
-    if (!cachedSkinPrefix) {
-      cachedSkinPrefix = getSkinPrefix()
-    }
-    return cachedSkinPrefix ?? 'hdd'
-  }
 
   const adapter: SiteAdapter = {
     getProgramName() {
@@ -173,7 +166,10 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
     getMinePositions(result?: GameResult): BoardPosition[] {
       // Guard: only read mine positions after a game has ended.
       // During gameplay, cell classes don't reliably indicate mine locations.
-      if (!result || detectFaceState() === null) {
+      const faceState = detectFaceState()
+      console.debug('[MSR] getMinePositions called: result =', result, ', faceState =', faceState)
+      if (!result || faceState === null) {
+        console.debug('[MSR] getMinePositions: guard failed, returning []')
         return []
       }
 
@@ -181,7 +177,10 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // After a win: all non-mine cells are opened, so any cell still 'closed'
       //   or 'flag' is a mine. We must include 'closed' because the site's
       //   auto-flag animation may not have run yet when this is called.
-      const prefix = skinPrefix()
+      // Always re-read the skin prefix from the DOM. This is called once
+      // per game end, so the trivial DOM query cost avoids stale-cache bugs
+      // after SPA navigation or skin changes.
+      const prefix = getSkinPrefix() ?? 'hdd'
       const mines: BoardPosition[] = []
 
       const cells = document.querySelectorAll('#AreaBlock .cell')
@@ -204,7 +203,12 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
     onGameEnd(callback) {
       // Watch the face element for class changes that indicate win/loss
       const face = document.querySelector('#top_area_face')
-      if (!face) return
+      if (!face) {
+        console.warn('[MSR] onGameEnd: #top_area_face not found in DOM')
+        return
+      }
+
+      console.debug('[MSR] onGameEnd: setting up face observer on', face.className)
 
       // Clean up any previous observer
       if (faceObserver) {
@@ -212,7 +216,9 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       }
 
       faceObserver = new MutationObserver(() => {
+        console.debug('[MSR] Face class changed:', face.className)
         const result = detectFaceState()
+        console.debug('[MSR] detectFaceState() =', result)
         if (result) {
           callback(result)
           // Stop observing after game ends
@@ -227,13 +233,25 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       })
     },
 
+    cancelGameEnd() {
+      if (faceObserver) {
+        faceObserver.disconnect()
+        faceObserver = null
+      }
+    },
+
     onBoardReset(callback) {
       // Watch the face element for the win/lose class to DISAPPEAR,
       // which indicates the player has started a new game.
       // After a game ends, the face shows win/lose. When the user clicks
       // the face or a cell to start a new game, the face returns to neutral.
       const face = document.querySelector('#top_area_face')
-      if (!face) return
+      if (!face) {
+        console.warn('[MSR] onBoardReset: #top_area_face not found')
+        return
+      }
+
+      console.debug('[MSR] onBoardReset: watching for face to return to neutral')
 
       if (resetObserver) {
         resetObserver.disconnect()
@@ -241,8 +259,10 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
 
       resetObserver = new MutationObserver(() => {
         const state = detectFaceState()
+        console.debug('[MSR] onBoardReset: face changed, detectFaceState() =', state)
         if (!state) {
           // Face no longer shows win/lose — board is resetting
+          console.debug('[MSR] Board reset detected')
           resetObserver?.disconnect()
           resetObserver = null
           // Read-only: wait one frame for cells to reset in the DOM
@@ -277,8 +297,6 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       }
 
       boardChangeObserver = new MutationObserver(() => {
-        // Invalidate cached skin prefix — new board may have different skin
-        cachedSkinPrefix = null
         // Read-only: wait one frame for new cells to fully render. No DOM writes.
         requestAnimationFrame(() => callback())
       })

@@ -81,6 +81,11 @@ export interface SiteAdapter {
   cancelBoardReset?(): void
 
   /**
+   * Cancel the game end watcher set up by onGameEnd.
+   */
+  cancelGameEnd?(): void
+
+  /**
    * Watch for the board layout to change (e.g., user switched difficulty).
    * Fires when cells are added/removed from the board, indicating a different
    * board configuration. Does NOT fire for same-size restarts where cells

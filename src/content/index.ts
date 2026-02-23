@@ -13,6 +13,13 @@
  *   - Game ends → RAWVF stored, watch for board reset → new recorder → repeat
  *   - User clicks "Stop" → session ends, all replays available for download
  *
+ * SPA navigation handling:
+ *   minesweeper.online and similar sites are SPAs — navigating to a different
+ *   page (settings, leaderboard, etc.) destroys the game DOM without triggering
+ *   a full page reload. The content script survives, but all MutationObservers
+ *   become zombies watching detached elements. A periodic board-presence check
+ *   detects this and re-initializes everything when the board reappears.
+ *
  * Site-specific board detection is handled by "site adapters" — each adapter
  * knows how to find the board, extract cell states, and detect game results
  * for a particular minesweeper website.
@@ -47,6 +54,12 @@ let currentState: RecordingState = 'idle'
 
 /** Player name for replay metadata */
 let playerName: string | undefined
+
+/** Interval for monitoring board presence (SPA navigation handling) */
+let boardPresenceInterval: ReturnType<typeof setInterval> | null = null
+
+/** The last known board DOM element — used to detect element replacement */
+let lastKnownBoardElement: HTMLElement | null = null
 
 // --------------------------------------------------------------------------
 // Message handler
@@ -107,23 +120,13 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
   currentAdapter = adapter
   sessionGameCount = 0
 
+  console.debug('[MSR] Session started, board:', boardConfig.cols, 'x', boardConfig.rows)
+
   // Watch for board layout changes (difficulty switches) for the entire session.
-  // Unlike onBoardReset (per-game, one-shot), this persists across games.
-  adapter.onBoardChange?.(() => {
-    if (!sessionActive) return
+  setupBoardChangeWatcher(adapter)
 
-    // Board layout changed (user switched difficulty mid-game or between games).
-    // Abort any in-progress game and start fresh with the new board config.
-    if (recorder) {
-      recorder.abort()
-      recorder = null // Don't save — game was interrupted by difficulty change
-    }
-
-    // Cancel any pending board reset watcher from a completed game
-    adapter.cancelBoardReset?.()
-
-    startNextGame(adapter)
-  })
+  // Monitor board presence to handle SPA navigation.
+  startBoardPresenceMonitor(adapter)
 
   // Start the first game
   startNextGame(adapter)
@@ -138,9 +141,13 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
 function handleStopSession(): void {
   sessionActive = false
 
+  // Stop monitoring
+  stopBoardPresenceMonitor()
+
   // Cancel all watchers
   currentAdapter?.cancelBoardChange?.()
   currentAdapter?.cancelBoardReset?.()
+  currentAdapter?.cancelGameEnd?.()
 
   // If a game is currently in progress, abort it
   if (recorder) {
@@ -148,15 +155,150 @@ function handleStopSession(): void {
     if (state === 'recording') {
       // Game was in progress — abort and try to salvage the recording
       recorder.abort()
-      finalizeCurrentGame(currentAdapter, 'unknown')
+      // Try to read mines once (best effort during manual stop)
+      if (currentAdapter) {
+        const mines = currentAdapter.getMinePositions?.('unknown') ?? []
+        if (mines.length > 0) recorder.setMinePositions(mines)
+      }
+      saveCompletedGame(recorder)
     } else if (state === 'ready') {
       // Game hadn't started yet — just clean up
       recorder.abort()
-      recorder = null
     }
+    recorder = null
   }
 
   currentState = 'idle'
+}
+
+// --------------------------------------------------------------------------
+// Board presence monitoring (SPA navigation handling)
+// --------------------------------------------------------------------------
+
+/**
+ * Periodically check whether the board is present in the DOM.
+ *
+ * Handles SPA-style navigation where the game board element is destroyed
+ * and recreated without a full page reload (the content script stays alive
+ * but all MutationObservers become zombies watching detached nodes).
+ *
+ * When the board disappears: abort the current game, clean up observers.
+ * When the board reappears: re-attach all observers, start a new game.
+ */
+function startBoardPresenceMonitor(adapter: SiteAdapter): void {
+  stopBoardPresenceMonitor()
+  lastKnownBoardElement = adapter.findBoardElement()
+
+  const intervalMS = 500
+  boardPresenceInterval = setInterval(() => {
+    if (!sessionActive) return
+
+    const currentBoardElement = adapter.findBoardElement()
+    const hadBoard = lastKnownBoardElement !== null
+    const hasBoard = currentBoardElement !== null && adapter.getBoardConfig() !== null
+
+    // Detect element replacement: same selector found a different DOM node.
+    // This happens on difficulty changes where #AreaBlock is destroyed and
+    // recreated. All MutationObservers on the old node are now zombies.
+    const elementReplaced = hadBoard && hasBoard &&
+      currentBoardElement !== lastKnownBoardElement &&
+      !document.contains(lastKnownBoardElement)
+
+    if (elementReplaced) {
+      console.debug('[MSR] Board element replaced (difficulty change or page update)')
+      lastKnownBoardElement = currentBoardElement
+
+      // Clean up everything attached to the old DOM nodes
+      if (recorder) {
+        recorder.abort()
+        recorder = null
+      }
+      adapter.cancelBoardReset?.()
+      adapter.cancelBoardChange?.()
+      adapter.cancelGameEnd?.()
+
+      // Re-establish on new DOM
+      setupBoardChangeWatcher(adapter)
+      startNextGame(adapter)
+      return
+    }
+
+    if (!hasBoard && hadBoard) {
+      // Board disappeared — user navigated away from the game page.
+      console.debug('[MSR] Board disappeared (SPA navigation)')
+      lastKnownBoardElement = null
+
+      if (recorder) {
+        recorder.abort()
+        recorder = null
+      }
+      adapter.cancelBoardReset?.()
+      adapter.cancelBoardChange?.()
+      adapter.cancelGameEnd?.()
+
+      currentState = 'ready'
+
+    } else if (hasBoard && !hadBoard) {
+      // Board appeared — user navigated back to the game page.
+      console.debug('[MSR] Board appeared (SPA navigation back)')
+      lastKnownBoardElement = currentBoardElement
+
+      setupBoardChangeWatcher(adapter)
+      startNextGame(adapter)
+    }
+  }, intervalMS)
+}
+
+function stopBoardPresenceMonitor(): void {
+  if (boardPresenceInterval !== null) {
+    clearInterval(boardPresenceInterval)
+    boardPresenceInterval = null
+  }
+}
+
+/**
+ * Check if the board is present and usable (exists and has cells).
+ * A board element might exist but be empty during page transitions.
+ */
+function isBoardUsable(adapter: SiteAdapter): boolean {
+  return !!adapter.findBoardElement() && !!adapter.getBoardConfig()
+}
+
+// --------------------------------------------------------------------------
+// Board change watcher (difficulty switches)
+// --------------------------------------------------------------------------
+
+/**
+ * Set up a watcher for board layout changes (e.g., user switched difficulty).
+ * Aborts any in-progress game and starts fresh with the new board config.
+ * Unlike onBoardReset (one-shot, per-game), this persists across games.
+ *
+ * Note: This is a belt-and-suspenders measure. The board presence monitor
+ * also detects element replacement via polling. This fires faster for
+ * in-place childList mutations (same element, new children).
+ */
+function setupBoardChangeWatcher(adapter: SiteAdapter): void {
+  adapter.onBoardChange?.(() => {
+    if (!sessionActive) return
+    console.debug('[MSR] onBoardChange fired (childList mutation on board)')
+
+    // Board layout changed (user switched difficulty mid-game or between games).
+    // Abort any in-progress game and start fresh with the new board config.
+    if (recorder) {
+      recorder.abort()
+      recorder = null // Don't save — game was interrupted by difficulty change
+    }
+
+    // Cancel any pending per-game watchers from the previous board layout
+    adapter.cancelBoardReset?.()
+    adapter.cancelGameEnd?.()
+
+    // Update the tracked element reference so the presence monitor doesn't
+    // also fire for the same change.
+    lastKnownBoardElement = adapter.findBoardElement()
+
+    startNextGame(adapter)
+  })
 }
 
 // --------------------------------------------------------------------------
@@ -168,15 +310,18 @@ function handleStopSession(): void {
  * Called at session start and after each board reset.
  */
 function startNextGame(adapter: SiteAdapter): void {
+  console.debug('[MSR] startNextGame called')
   // Get fresh board config (user might have changed difficulty between games)
   const boardElement = adapter.findBoardElement()
   const boardConfig = adapter.getBoardConfig()
   if (!boardElement || !boardConfig) {
-    // Board disappeared — end the session gracefully
-    sessionActive = false
-    currentState = 'idle'
+    console.warn('[MSR] startNextGame: board not found, waiting for presence monitor')
+    // Board not found — don't kill the session.
+    // The board presence monitor will detect when the board returns.
+    currentState = 'ready'
     return
   }
+  console.debug('[MSR] startNextGame: board', boardConfig.cols, 'x', boardConfig.rows, ', squareSize', boardConfig.squareSize)
 
   // Create a new recorder for this game
   recorder = new GameRecorder({
@@ -203,17 +348,17 @@ function startNextGame(adapter: SiteAdapter): void {
   // Set up game end detection
   adapter.onGameEnd?.((result) => {
     if (recorder && recorder.getState() === 'recording') {
-      // Capture mine positions before finishing
-      const mines = adapter.getMinePositions?.(result)
-      if (mines) {
-        recorder.setMinePositions(mines)
-      }
+      console.debug('[MSR] Game end detected:', result)
       recorder.finish(result)
+      const finishedRecorder = recorder
+      recorder = null  // Detach from global immediately
 
-      // Finalize and store the completed game
-      finalizeCurrentGame(adapter, result)
+      // Read mines and save. Uses immediate read + retries in case the
+      // site animates mine reveals after the face/status indicator changes.
+      readMinesAndFinalize(adapter, finishedRecorder, result, 0)
 
-      // If session is still active, prepare for the next game
+      // Start waiting for the next game immediately (don't delay behind
+      // mine reading — the board reset watcher must be active right away).
       if (sessionActive) {
         waitForNextGame(adapter)
       }
@@ -223,44 +368,84 @@ function startNextGame(adapter: SiteAdapter): void {
   // Start the recorder (enters 'ready' state, waiting for first click)
   recorder.start()
   currentState = 'ready'
+  console.debug('[MSR] Recorder started, state = ready, waiting for first click')
 }
 
+// --------------------------------------------------------------------------
+// Mine reading with retries
+// --------------------------------------------------------------------------
+
+const MINE_READ_MAX_RETRIES = 4
+const MINE_READ_DELAY_MS = 150
+
 /**
- * Extract recording data from the current game and add it to completedGames.
+ * Attempt to read mine positions from the DOM and save the completed game.
+ *
+ * Mines may not be visible immediately when the game ends — some sites
+ * animate mine reveals after the face/status indicator changes. This
+ * function retries a few times with short delays before giving up.
+ *
+ * Uses a saved recorder reference (not the global) so that a new game
+ * starting during retries doesn't corrupt the old game's data.
  */
-function finalizeCurrentGame(adapter: SiteAdapter | null, result: GameResult): void {
-  if (!recorder) return
+function readMinesAndFinalize(
+  adapter: SiteAdapter,
+  gameRecorder: GameRecorder,
+  result: GameResult,
+  attempt: number,
+): void {
+  const mines = adapter.getMinePositions?.(result) ?? []
 
-  // Belt-and-suspenders: try to get mine positions if not already set
-  if (adapter) {
-    const mines = adapter.getMinePositions?.(result)
-    if (mines && mines.length > 0) {
-      recorder.setMinePositions(mines)
-    }
+  if (mines.length > 0) {
+    console.debug(`[MSR] Found ${mines.length} mines (attempt ${attempt + 1})`)
+    gameRecorder.setMinePositions(mines)
+    saveCompletedGame(gameRecorder)
+    return
   }
 
-  const data = recorder.getRecordingData()
-  if (data) {
-    // Derive mine count from the actual mine positions found
-    data.board.mines = data.minePositions.length
-
-    const rawvf = generateRawvf(data)
-    const filename = generateFilename(data)
-    sessionGameCount++
-
-    // Persist to storage. Fire-and-forget: the popup polls and will pick it up.
-    saveGame({
-      filename,
-      timestamp: data.metadata.timestamp ?? new Date().toISOString(),
-      cols: data.board.cols,
-      rows: data.board.rows,
-      mines: data.board.mines,
-      result: data.result,
-      timeMs: data.totalTimeMs,
-    }, rawvf).catch(err => console.error('Failed to save replay to storage:', err))
+  if (attempt < MINE_READ_MAX_RETRIES) {
+    setTimeout(
+      () => readMinesAndFinalize(adapter, gameRecorder, result, attempt + 1),
+      MINE_READ_DELAY_MS,
+    )
+    return
   }
 
-  recorder = null
+  // All retries exhausted — save without mine data.
+  console.warn(`[MSR] Could not read mine positions after ${attempt + 1} attempts`)
+  saveCompletedGame(gameRecorder)
+}
+
+// --------------------------------------------------------------------------
+// Game saving
+// --------------------------------------------------------------------------
+
+/**
+ * Generate RAWVF from a finished recorder and persist to storage.
+ */
+function saveCompletedGame(gameRecorder: GameRecorder): void {
+  const data = gameRecorder.getRecordingData()
+  if (!data) return
+
+  // Derive mine count from the actual mine positions found
+  data.board.mines = data.minePositions.length
+
+  const rawvf = generateRawvf(data)
+  const filename = generateFilename(data)
+  sessionGameCount++
+
+  console.debug(`[MSR] Saved: ${filename} (${data.board.mines} mines, ${data.result})`)
+
+  // Persist to storage. Fire-and-forget: the popup polls and will pick it up.
+  saveGame({
+    filename,
+    timestamp: data.metadata.timestamp ?? new Date().toISOString(),
+    cols: data.board.cols,
+    rows: data.board.rows,
+    mines: data.board.mines,
+    result: data.result,
+    timeMs: data.totalTimeMs,
+  }, rawvf).catch(err => console.error('[MSR] Failed to save replay:', err))
 }
 
 /**
@@ -272,7 +457,7 @@ function waitForNextGame(adapter: SiteAdapter): void {
   currentState = 'ready'
 
   adapter.onBoardReset?.(() => {
-    if (sessionActive) {
+    if (sessionActive && !recorder) {
       startNextGame(adapter)
     }
   })
