@@ -23,6 +23,7 @@ import {
   loadMeta,
   getGamesContent,
   deleteGames,
+  clearAllGames,
   STORAGE_BUDGET_BYTES,
   type StoredGameMeta,
 } from '../storage/gameStorage'
@@ -41,6 +42,7 @@ const storageInfoEl = document.getElementById('storage-info') as HTMLSpanElement
 const gameListEl = document.getElementById('game-list') as HTMLDivElement
 const btnDownload = document.getElementById('btn-download') as HTMLButtonElement
 const btnDelete = document.getElementById('btn-delete') as HTMLButtonElement
+const btnClearAll = document.getElementById('btn-clear-all') as HTMLButtonElement
 const playerNameInput = document.getElementById('player-name') as HTMLInputElement
 
 // Settings elements
@@ -91,6 +93,7 @@ async function init(): Promise<void> {
   btnStop.addEventListener('click', stopRecording)
   btnDownload.addEventListener('click', downloadSelected)
   btnDelete.addEventListener('click', deleteSelected)
+  btnClearAll.addEventListener('click', clearAll)
   selectAll.addEventListener('change', onSelectAllChange)
 
   // Settings UI
@@ -329,6 +332,19 @@ async function deleteSelected(): Promise<void> {
   await refreshGameList()
 }
 
+async function clearAll(): Promise<void> {
+  if (games.length === 0) return
+
+  const confirmed = confirm(
+    `Delete ALL ${games.length} replay${games.length > 1 ? 's' : ''}? This cannot be undone.`
+  )
+  if (!confirmed) return
+
+  await clearAllGames()
+  selectedIds.clear()
+  await refreshGameList()
+}
+
 function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -390,6 +406,7 @@ function updateActionButtons(): void {
 
   btnDownload.disabled = !hasGames
   btnDelete.disabled = selCount === 0
+  btnClearAll.disabled = !hasGames
 
   if (selCount > 0) {
     btnDownload.textContent = `💾 Download (${selCount})`
