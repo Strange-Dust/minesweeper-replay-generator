@@ -26,7 +26,7 @@ const META_KEY = 'replayMeta'
 const CONTENT_KEY_PREFIX = 'replay_'
 
 /** Maximum total bytes of RAWVF content to store. Oldest games evicted when exceeded. */
-export const STORAGE_BUDGET_BYTES = 5 * 1024 * 1024 // 5 MB
+export const STORAGE_BUDGET_BYTES = 50 * 1024 * 1024 // 50 MB
 
 // ============================================================================
 // Types

@@ -511,7 +511,13 @@ function updateSettingsUI(stored: StoredSettings): void {
     settingsStatusText.textContent = 'Auto-detected from settings page'
   } else {
     settingsStatusEl.className = 'settings-status'
-    settingsStatusText.textContent = 'Not detected — visit the game\'s settings page'
+    settingsStatusText.textContent = '⚠️ Not detected — visit the game\'s settings page'
+  }
+
+  // Show/hide warning icon on the collapsed summary
+  const summaryEl = document.getElementById('settings-summary')
+  if (summaryEl) {
+    summaryEl.textContent = (autoDetected || isManual) ? 'Settings' : '⚠️ Settings'
   }
 
   // Current values display
