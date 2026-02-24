@@ -15,6 +15,7 @@
  */
 
 import type { BoardConfig, BoardPosition, GameResult } from '../types/rawvf'
+import type { GameSettings } from '../types/settings'
 import { createMinesweeperOnlineAdapter } from './adapters/minesweeperOnline'
 
 // ============================================================================
@@ -105,6 +106,34 @@ export interface SiteAdapter {
    * Cancel the board change watcher set up by onBoardChange.
    */
   cancelBoardChange?(): void
+
+  // --------------------------------------------------------------------------
+  // Settings detection
+  // --------------------------------------------------------------------------
+
+  /**
+   * Whether the current page is the site's settings/configuration page.
+   * Used by the content script to know when to parse settings.
+   */
+  isSettingsPage?(): boolean
+
+  /**
+   * Read game settings from the current page's DOM.
+   * Only meaningful when isSettingsPage() returns true.
+   * Returns null if settings cannot be read.
+   */
+  readSettings?(): GameSettings | null
+
+  /**
+   * Watch for settings changes on the settings page (e.g., user changes a dropdown).
+   * Calls back whenever a relevant setting changes.
+   */
+  watchSettings?(callback: (settings: GameSettings) => void): void
+
+  /**
+   * Stop watching for settings changes (cleanup).
+   */
+  cancelWatchSettings?(): void
 }
 
 // ============================================================================

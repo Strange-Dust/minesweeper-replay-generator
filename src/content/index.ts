@@ -27,10 +27,12 @@
 
 import browser from '../utils/browser'
 import type { RecordingState, GameResult } from '../types/rawvf'
+import type { GameSettings } from '../types/settings'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
 import { generateRawvf, generateFilename } from '../rawvf/writer'
 import { saveGame } from '../storage/gameStorage'
+import { saveAutoDetectedSettings, getEffectiveSettings } from '../storage/settingsStorage'
 import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
 
 // --------------------------------------------------------------------------
@@ -72,6 +74,9 @@ let boardPresenceInterval: ReturnType<typeof setInterval> | null = null
 /** The last known board DOM element — used to detect element replacement */
 let lastKnownBoardElement: HTMLElement | null = null
 
+/** Cached game settings for the current session */
+let currentSettings: GameSettings | null = null
+
 // --------------------------------------------------------------------------
 // Message handler
 // --------------------------------------------------------------------------
@@ -90,6 +95,9 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
 
     case 'GET_STATUS':
       return Promise.resolve(getStatus())
+
+    case 'GET_SETTINGS':
+      return getEffectiveSettings().then(s => ({ settings: s }))
   }
 })
 
@@ -131,7 +139,9 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
   currentAdapter = adapter
   sessionGameCount = 0
 
-  console.debug('[MSR] Session started, board:', boardConfig.cols, 'x', boardConfig.rows)
+  // Load settings (from storage or auto-detect if on settings page)
+  currentSettings = await getEffectiveSettings()
+  console.debug('[MSR] Session started, board:', boardConfig.cols, 'x', boardConfig.rows, ', settings:', currentSettings)
 
   // Watch for board layout changes (difficulty switches) for the entire session.
   setupBoardChangeWatcher(adapter)
@@ -345,10 +355,12 @@ function startNextGame(adapter: SiteAdapter): void {
       player: effectivePlayerName,
       timestamp: new Date().toISOString(),
       questionMarks: false,
+      chordingMode: currentSettings?.chording,
     },
     mouseTrackerConfig: {
       boardElement,
       squareSize: boardConfig.squareSize,
+      keyboardMouse: currentSettings?.keyboardMouse,
     },
     onStateChange: (state) => {
       // In multi-game mode, don't expose individual game 'finished' to the popup.
@@ -488,3 +500,38 @@ function getStatus(): StatusResponse {
     elapsedMs: recorder?.getElapsedMs() ?? 0,
   }
 }
+
+// --------------------------------------------------------------------------
+// Settings auto-detection
+// --------------------------------------------------------------------------
+
+/**
+ * On content script load, check if we're on the settings page and
+ * auto-detect game settings. This runs independently of recording sessions
+ * so that settings are captured even when the user isn't recording.
+ *
+ * Also sets up a watcher for live changes on the settings page.
+ */
+function autoDetectSettings(): void {
+  const adapter = detectSiteAdapter()
+  if (!adapter) return
+
+  if (!adapter.isSettingsPage?.()) return
+
+  const settings = adapter.readSettings?.()
+  if (settings) {
+    console.debug('[MSR] Auto-detected settings from settings page:', settings)
+    saveAutoDetectedSettings(settings)
+    currentSettings = settings
+  }
+
+  // Watch for live changes on the settings page
+  adapter.watchSettings?.((updatedSettings) => {
+    console.debug('[MSR] Settings changed on settings page:', updatedSettings)
+    saveAutoDetectedSettings(updatedSettings)
+    currentSettings = updatedSettings
+  })
+}
+
+// Run settings auto-detection on content script load
+autoDetectSettings()

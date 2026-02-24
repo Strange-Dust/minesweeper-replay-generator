@@ -58,6 +58,58 @@
           <label for="player-name">Player name:</label>
           <input type="text" id="player-name" placeholder="Anonymous" />
         </div>
+
+        <div class="setting-divider"></div>
+
+        <div class="settings-status" id="settings-status">
+          <span class="settings-status-text" id="settings-status-text">
+            Not detected — visit the game's settings page to auto-detect
+          </span>
+        </div>
+
+        <div class="setting-row">
+          <label>Chording mode:</label>
+          <div class="setting-value" id="chording-display">—</div>
+        </div>
+
+        <div class="setting-row">
+          <label>Keyboard-as-mouse:</label>
+          <div class="setting-value" id="keyboard-display">—</div>
+        </div>
+
+        <div class="setting-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="manual-override" />
+            <span>Manual override</span>
+          </label>
+        </div>
+
+        <div id="manual-settings" class="manual-settings hidden">
+          <div class="setting-row">
+            <label for="chording-select">Chording:</label>
+            <select id="chording-select">
+              <option value="both">Left+Right click (Both)</option>
+              <option value="superclick">Left click only (SuperClick)</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="keyboard-enabled" />
+              <span>Keyboard-as-mouse enabled</span>
+            </label>
+          </div>
+          <div class="setting-row keyboard-keys hidden" id="keyboard-keys">
+            <div class="key-row">
+              <label for="left-key">Left click key:</label>
+              <select id="left-key"></select>
+            </div>
+            <div class="key-row">
+              <label for="right-key">Right click key:</label>
+              <select id="right-key"></select>
+            </div>
+          </div>
+        </div>
       </details>
     </div>
   </div>

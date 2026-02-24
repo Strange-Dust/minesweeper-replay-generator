@@ -1,3 +1,5 @@
+import type { ChordingMode } from './settings'
+
 /**
  * Types for RAWVF replay file generation.
  *
@@ -100,6 +102,8 @@ export interface ReplayMetadata {
   timestamp?: string
   /** Whether question marks are enabled */
   questionMarks: boolean
+  /** Chording mode used during the game (for SuperClick field) */
+  chordingMode?: ChordingMode
 }
 
 // ============================================================================

@@ -11,6 +11,14 @@
 
 import browser from '../utils/browser'
 import type { StatusResponse } from '../types/messages'
+import type { GameSettings, ChordingMode } from '../types/settings'
+import { DEFAULT_SETTINGS } from '../types/settings'
+import {
+  loadSettings,
+  saveManualSettings,
+  clearManualOverride,
+  type StoredSettings,
+} from '../storage/settingsStorage'
 import {
   loadMeta,
   getGamesContent,
@@ -34,6 +42,19 @@ const gameListEl = document.getElementById('game-list') as HTMLDivElement
 const btnDownload = document.getElementById('btn-download') as HTMLButtonElement
 const btnDelete = document.getElementById('btn-delete') as HTMLButtonElement
 const playerNameInput = document.getElementById('player-name') as HTMLInputElement
+
+// Settings elements
+const settingsStatusEl = document.getElementById('settings-status') as HTMLDivElement
+const settingsStatusText = document.getElementById('settings-status-text') as HTMLSpanElement
+const chordingDisplay = document.getElementById('chording-display') as HTMLDivElement
+const keyboardDisplay = document.getElementById('keyboard-display') as HTMLDivElement
+const manualOverride = document.getElementById('manual-override') as HTMLInputElement
+const manualSettingsEl = document.getElementById('manual-settings') as HTMLDivElement
+const chordingSelect = document.getElementById('chording-select') as HTMLSelectElement
+const keyboardEnabled = document.getElementById('keyboard-enabled') as HTMLInputElement
+const keyboardKeysEl = document.getElementById('keyboard-keys') as HTMLDivElement
+const leftKeySelect = document.getElementById('left-key') as HTMLSelectElement
+const rightKeySelect = document.getElementById('right-key') as HTMLSelectElement
 
 // --------------------------------------------------------------------------
 // State
@@ -72,9 +93,20 @@ async function init(): Promise<void> {
   btnDelete.addEventListener('click', deleteSelected)
   selectAll.addEventListener('change', onSelectAllChange)
 
+  // Settings UI
+  populateKeySelects()
+  manualOverride.addEventListener('change', onManualOverrideChange)
+  chordingSelect.addEventListener('change', onManualSettingChange)
+  keyboardEnabled.addEventListener('change', onKeyboardEnabledChange)
+  leftKeySelect.addEventListener('change', onManualSettingChange)
+  rightKeySelect.addEventListener('change', onManualSettingChange)
+
   // Initial data load
-  await refreshGameList()
-  await refreshStatus()
+  await Promise.all([
+    refreshGameList(),
+    refreshStatus(),
+    refreshSettings(),
+  ])
 }
 
 // --------------------------------------------------------------------------
@@ -429,6 +461,120 @@ function capitalize(str: string): string {
 
 function escapeAttr(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+// --------------------------------------------------------------------------
+// Settings UI
+// --------------------------------------------------------------------------
+
+/** Common key codes available on minesweeper.online */
+const KEY_OPTIONS: { code: number; label: string }[] = [
+  { code: 32, label: 'Space' },
+  { code: 65, label: 'A' },
+  { code: 68, label: 'D' },
+  { code: 70, label: 'F' },
+  { code: 74, label: 'J' },
+  { code: 75, label: 'K' },
+  { code: 76, label: 'L' },
+  { code: 83, label: 'S' },
+  { code: 87, label: 'W' },
+  { code: 90, label: 'Z' },
+]
+
+function populateKeySelects(): void {
+  for (const select of [leftKeySelect, rightKeySelect]) {
+    select.innerHTML = KEY_OPTIONS.map(k =>
+      `<option value="${k.code}">${k.label}</option>`
+    ).join('')
+  }
+}
+
+async function refreshSettings(): Promise<void> {
+  const stored = await loadSettings()
+  updateSettingsUI(stored)
+}
+
+function updateSettingsUI(stored: StoredSettings): void {
+  const { settings, autoDetected, manualOverride: isManual } = stored
+
+  // Status line
+  if (isManual) {
+    settingsStatusEl.className = 'settings-status detected'
+    settingsStatusText.textContent = 'Manual override active'
+  } else if (autoDetected) {
+    settingsStatusEl.className = 'settings-status detected'
+    settingsStatusText.textContent = 'Auto-detected from settings page'
+  } else {
+    settingsStatusEl.className = 'settings-status'
+    settingsStatusText.textContent = 'Not detected — visit the game\'s settings page'
+  }
+
+  // Current values display
+  chordingDisplay.textContent = formatChordingMode(settings.chording)
+  keyboardDisplay.textContent = formatKeyboardConfig(settings.keyboardMouse)
+
+  // Manual override checkbox
+  manualOverride.checked = isManual
+
+  // Manual controls visibility
+  if (isManual) {
+    manualSettingsEl.classList.remove('hidden')
+    chordingSelect.value = settings.chording
+    keyboardEnabled.checked = settings.keyboardMouse.enabled
+    leftKeySelect.value = String(settings.keyboardMouse.leftKeyCode)
+    rightKeySelect.value = String(settings.keyboardMouse.rightKeyCode)
+    keyboardKeysEl.classList.toggle('hidden', !settings.keyboardMouse.enabled)
+  } else {
+    manualSettingsEl.classList.add('hidden')
+  }
+}
+
+function formatChordingMode(mode: ChordingMode): string {
+  switch (mode) {
+    case 'superclick': return 'Left click (SuperClick)'
+    case 'both': return 'Left+Right click'
+    case 'disabled': return 'Disabled'
+  }
+}
+
+function formatKeyboardConfig(config: { enabled: boolean; leftKeyCode: number; rightKeyCode: number }): string {
+  if (!config.enabled) return 'Disabled'
+  const left = KEY_OPTIONS.find(k => k.code === config.leftKeyCode)?.label ?? `Key ${config.leftKeyCode}`
+  const right = KEY_OPTIONS.find(k => k.code === config.rightKeyCode)?.label ?? `Key ${config.rightKeyCode}`
+  return `Enabled (L: ${left}, R: ${right})`
+}
+
+async function onManualOverrideChange(): Promise<void> {
+  if (manualOverride.checked) {
+    // Enable manual override with current effective settings as starting values
+    const stored = await loadSettings()
+    await saveManualSettings(stored.settings)
+  } else {
+    await clearManualOverride()
+  }
+  await refreshSettings()
+}
+
+async function onManualSettingChange(): Promise<void> {
+  if (!manualOverride.checked) return
+  await saveManualSettings(getManualSettingsFromUI())
+  await refreshSettings()
+}
+
+function onKeyboardEnabledChange(): void {
+  keyboardKeysEl.classList.toggle('hidden', !keyboardEnabled.checked)
+  onManualSettingChange()
+}
+
+function getManualSettingsFromUI(): GameSettings {
+  return {
+    chording: chordingSelect.value as ChordingMode,
+    keyboardMouse: {
+      enabled: keyboardEnabled.checked,
+      leftKeyCode: parseInt(leftKeySelect.value, 10) || DEFAULT_SETTINGS.keyboardMouse.leftKeyCode,
+      rightKeyCode: parseInt(rightKeySelect.value, 10) || DEFAULT_SETTINGS.keyboardMouse.rightKeyCode,
+    },
+  }
 }
 
 // --------------------------------------------------------------------------

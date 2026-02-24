@@ -97,6 +97,13 @@ function buildDescription(recording: RecordingData): string {
   // Settings
   lines.push(`Marks: ${metadata.questionMarks ? 'On' : 'Off'}`)
 
+  // SuperClick: left-click on opened square acts as chord
+  if (metadata.chordingMode === 'superclick') {
+    lines.push('SuperClick: On')
+  } else if (metadata.chordingMode) {
+    lines.push('SuperClick: Off')
+  }
+
   if (board.squareSize !== 16) {
     lines.push(`SquareSize: ${board.squareSize}`)
   }
@@ -112,7 +119,7 @@ function buildDescription(recording: RecordingData): string {
   }
 
   // Mode
-  lines.push('Mode: Classic')   // not sure if it matters to have cheat for "SuperClick" (L-Chord)
+  lines.push('Mode: Classic')
 
   return lines.join('\n')
 }

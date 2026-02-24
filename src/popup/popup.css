@@ -309,3 +309,76 @@ summary {
   border-radius: 4px;
   font-size: 12px;
 }
+
+.setting-divider {
+  margin: 8px 0;
+  border-top: 1px solid #e9ecef;
+}
+
+.settings-status {
+  margin: 6px 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: #fff3cd;
+  font-size: 11px;
+}
+
+.settings-status.detected {
+  background: #d4edda;
+}
+
+.settings-status-text {
+  color: #555;
+}
+
+.setting-value {
+  font-size: 12px;
+  color: #333;
+  font-weight: 500;
+  padding: 2px 0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #555;
+}
+
+.checkbox-label input[type="checkbox"] {
+  flex-shrink: 0;
+}
+
+.manual-settings {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.manual-settings select {
+  padding: 4px 6px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.key-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.key-row label {
+  font-size: 11px;
+  color: #666;
+}
+
+.hidden {
+  display: none !important;
+}

@@ -31,6 +31,8 @@
 
 import type { SiteAdapter } from '../siteAdapters'
 import type { BoardConfig, BoardPosition, GameResult } from '../../types/rawvf'
+import type { GameSettings, ChordingMode } from '../../types/settings'
+import { DEFAULT_SETTINGS } from '../../types/settings'
 
 /** Known cell state suffixes — used to validate class names extracted from cell elements. */
 const VALID_CELL_SUFFIXES = new Set([
@@ -123,6 +125,55 @@ function extractCellPosition(cellElement: Element): { row: number; col: number }
 }
 
 // ============================================================================
+// Settings page parsing
+// ============================================================================
+
+/**
+ * Map minesweeper.online's chording select values to our ChordingMode type.
+ *
+ * Select #property_chording:
+ *   "1" = Left click (SuperClick)
+ *   "2" = Left+right click (traditional chording)
+ *   "3" = Disabled
+ */
+function parseChordingValue(value: string): ChordingMode {
+  switch (value) {
+    case '1': return 'superclick'
+    case '2': return 'both'
+    case '3': return 'disabled'
+    default: return DEFAULT_SETTINGS.chording
+  }
+}
+
+/**
+ * Read all relevant game settings from the settings page DOM.
+ * Returns null if the settings elements are not found (not on settings page).
+ */
+function readSettingsFromDOM(): GameSettings | null {
+  const chordingEl = document.querySelector('#property_chording') as HTMLSelectElement | null
+  if (!chordingEl) return null  // Not on settings page
+
+  const chording = parseChordingValue(chordingEl.value)
+
+  const keyboardEl = document.querySelector('#property_use_keyboard') as HTMLInputElement | null
+  const leftKeyEl = document.querySelector('#property_use_keyboard_left_button') as HTMLSelectElement | null
+  const rightKeyEl = document.querySelector('#property_use_keyboard_right_button') as HTMLSelectElement | null
+
+  const keyboardEnabled = keyboardEl?.checked ?? false
+  const leftKeyCode = leftKeyEl ? parseInt(leftKeyEl.value, 10) : DEFAULT_SETTINGS.keyboardMouse.leftKeyCode
+  const rightKeyCode = rightKeyEl ? parseInt(rightKeyEl.value, 10) : DEFAULT_SETTINGS.keyboardMouse.rightKeyCode
+
+  return {
+    chording,
+    keyboardMouse: {
+      enabled: keyboardEnabled,
+      leftKeyCode: isNaN(leftKeyCode) ? DEFAULT_SETTINGS.keyboardMouse.leftKeyCode : leftKeyCode,
+      rightKeyCode: isNaN(rightKeyCode) ? DEFAULT_SETTINGS.keyboardMouse.rightKeyCode : rightKeyCode,
+    },
+  }
+}
+
+// ============================================================================
 // Adapter implementation
 // ============================================================================
 
@@ -130,6 +181,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
   let faceObserver: MutationObserver | null = null
   let resetObserver: MutationObserver | null = null
   let boardChangeObserver: MutationObserver | null = null
+  let settingsListeners: Array<{ el: EventTarget; type: string; handler: EventListener }> = []
 
   const adapter: SiteAdapter = {
     getProgramName() {
@@ -314,6 +366,52 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
         boardChangeObserver.disconnect()
         boardChangeObserver = null
       }
+    },
+
+    // ------------------------------------------------------------------
+    // Settings detection
+    // ------------------------------------------------------------------
+
+    isSettingsPage() {
+      return window.location.pathname === '/settings'
+    },
+
+    readSettings(): GameSettings | null {
+      return readSettingsFromDOM()
+    },
+
+    watchSettings(callback) {
+      // Clean up any previous listeners
+      adapter.cancelWatchSettings?.()
+
+      // Watch the relevant form elements for changes
+      const chordingEl = document.querySelector('#property_chording')
+      const keyboardEl = document.querySelector('#property_use_keyboard')
+      const leftKeyEl = document.querySelector('#property_use_keyboard_left_button')
+      const rightKeyEl = document.querySelector('#property_use_keyboard_right_button')
+
+      const onChange = () => {
+        const settings = readSettingsFromDOM()
+        if (settings) {
+          console.debug('[MSR] Settings changed on page:', settings)
+          callback(settings)
+        }
+      }
+
+      for (const el of [chordingEl, keyboardEl, leftKeyEl, rightKeyEl]) {
+        if (el) {
+          const handler = onChange as EventListener
+          el.addEventListener('change', handler, { passive: true })
+          settingsListeners.push({ el, type: 'change', handler })
+        }
+      }
+    },
+
+    cancelWatchSettings() {
+      for (const { el, type, handler } of settingsListeners) {
+        el.removeEventListener(type, handler)
+      }
+      settingsListeners = []
     },
   }
 
