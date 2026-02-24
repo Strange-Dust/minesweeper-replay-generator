@@ -44,6 +44,7 @@ const btnDownload = document.getElementById('btn-download') as HTMLButtonElement
 const btnDelete = document.getElementById('btn-delete') as HTMLButtonElement
 const btnClearAll = document.getElementById('btn-clear-all') as HTMLButtonElement
 const playerNameInput = document.getElementById('player-name') as HTMLInputElement
+const winsOnlyCheckbox = document.getElementById('wins-only') as HTMLInputElement
 
 // Settings elements
 const settingsStatusEl = document.getElementById('settings-status') as HTMLDivElement
@@ -79,15 +80,19 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null
 // --------------------------------------------------------------------------
 
 async function init(): Promise<void> {
-  // Load saved player name
-  const stored = await browser.storage.local.get('playerName')
-  if (stored.playerName && typeof stored.playerName === 'string') {
-    playerNameInput.value = stored.playerName
+  // Load saved preferences
+  const prefs = await browser.storage.local.get(['playerName', 'winsOnly'])
+  if (prefs.playerName && typeof prefs.playerName === 'string') {
+    playerNameInput.value = prefs.playerName
   }
+  winsOnlyCheckbox.checked = prefs.winsOnly === true
 
   // Event listeners
   playerNameInput.addEventListener('input', () => {
     browser.storage.local.set({ playerName: playerNameInput.value })
+  })
+  winsOnlyCheckbox.addEventListener('change', () => {
+    browser.storage.local.set({ winsOnly: winsOnlyCheckbox.checked })
   })
   btnStart.addEventListener('click', startRecording)
   btnStop.addEventListener('click', stopRecording)

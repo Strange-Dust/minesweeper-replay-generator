@@ -447,10 +447,20 @@ function readMinesAndFinalize(
 
 /**
  * Generate RAWVF from a finished recorder and persist to storage.
+ * Respects the "Only save wins" preference — losses are silently skipped
+ * when enabled, but the session game count still increments.
  */
-function saveCompletedGame(gameRecorder: GameRecorder): void {
+async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
   const data = gameRecorder.getRecordingData()
   if (!data) return
+
+  // Check "Only save wins" preference
+  const prefs = await browser.storage.local.get('winsOnly')
+  if (prefs.winsOnly === true && data.result !== 'won') {
+    console.debug(`[MSR] Skipping save (result=${data.result}, winsOnly=true)`)
+    sessionGameCount++
+    return
+  }
 
   // Derive mine count from the actual mine positions found
   data.board.mines = data.minePositions.length
