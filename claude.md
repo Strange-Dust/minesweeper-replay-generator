@@ -28,7 +28,7 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 - For page JS access, use `<script>` tag injection + `window.postMessage()` rather than `"world": "MAIN"` (Safari doesn't support it).
 
 ### Coordinate conventions
-- Internal board positions: `(row, col)`, 0-indexed
+- Internal board positions: `(row, col)`, 0-indexed, row always comes first
 - Pixel coordinates: `(x, y)`, standard screen coordinates
 - RAWVF output: `(col, row)`, 1-indexed (conversion handled by the writer)
 
@@ -42,6 +42,39 @@ The `SiteAdapter` interface in `src/content/siteAdapters.ts` defines what each a
 - `extractCellPosition()` — get (row, col) from a cell element
 - `getMinePositions()` — read mine locations (post-game only)
 - `onGameEnd()` — detect win/loss
+
+## Adding Support for a New Site
+
+Implement the `SiteAdapter` interface in `src/content/siteAdapters.ts`:
+
+```typescript
+const myAdapter: SiteAdapter = {
+  getProgramName: () => 'My Minesweeper Site',
+  matches: () => window.location.hostname === 'myminesweeper.com',
+  findBoardElement: () => document.querySelector('#game-board'),
+  getBoardConfig: () => ({ cols: 30, rows: 16, mines: 99, squareSize: 24 }),
+  getCellSelector: () => '.cell',
+  extractCellState: (el) => { /* map CSS classes to board event codes */ },
+  extractCellPosition: (el) => { /* extract row, col from data attrs */ },
+}
+registerSiteAdapter(myAdapter)
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Build the extension (output in dist/)
+npm run build
+
+# Watch mode (auto-rebuild on changes)
+npm run watch
+
+# Type-check
+npm run typecheck
+```
 
 ### minesweeper.online (`src/content/adapters/minesweeperOnline.ts`)
 - Board container: `#AreaBlock`
