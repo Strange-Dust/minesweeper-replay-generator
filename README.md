@@ -30,3 +30,5 @@ It captures:
 1. Go to `about:debugging#/runtime/this-firefox`
 2. Click "Load Temporary Add-on" → select `dist/manifest.json`
 
+### Current Status
+* Support for minesweeper.online
