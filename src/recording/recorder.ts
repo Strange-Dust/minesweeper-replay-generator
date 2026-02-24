@@ -65,6 +65,10 @@ export class GameRecorder {
   private mouseTracker: MouseTracker
 
   private events: RecordedMouseEvent[] = []
+  /** Events buffered before the game officially starts (press before release) */
+  private pendingEvents: RecordedMouseEvent[] = []
+  /** Whether we've seen a press event and are waiting for the release */
+  private waitingForRelease: boolean = false
   private gameStartTime: number = 0
   private gameEndTime: number = 0
   private result: GameResult = 'unknown'
@@ -129,6 +133,8 @@ export class GameRecorder {
     if (this.state !== 'idle') return
 
     this.events = []
+    this.pendingEvents = []
+    this.waitingForRelease = false
     this.gameStartTime = 0
     this.gameEndTime = 0
     this.result = 'unknown'
@@ -136,7 +142,7 @@ export class GameRecorder {
     this.setState('ready')
 
     // Start the mouse tracker — will begin collecting events,
-    // but we don't set gameStartTime until the first click
+    // but we don't set gameStartTime until the first release
     this.mouseTracker.start(performance.now()) // temporary start time
   }
 
@@ -176,6 +182,8 @@ export class GameRecorder {
   reset(): void {
     this.mouseTracker.stop()
     this.events = []
+    this.pendingEvents = []
+    this.waitingForRelease = false
     this.gameStartTime = 0
     this.gameEndTime = 0
     this.result = 'unknown'
@@ -204,23 +212,40 @@ export class GameRecorder {
   // --------------------------------------------------------------------------
 
   private onMouseEvent(event: RecordedMouseEvent): void {
-    // If we're in 'ready' state and this is a click, transition to 'recording'
-    if (this.state === 'ready' && isClickEvent(event.event)) {
-      this.gameStartTime = performance.now() - event.timeMs
-      // Re-base the time — the mouse tracker was started with a temporary time
-      // We need to restart it with the correct game start time
-      this.mouseTracker.stop()
-      this.gameStartTime = performance.now()
-      this.mouseTracker.start(this.gameStartTime)
-
-      // Re-emit this click with time 0
-      const adjustedEvent: RecordedMouseEvent = {
-        ...event,
-        timeMs: 0,
+    if (this.state === 'ready') {
+      // Minesweeper convention: the game timer starts on the first mouse
+      // *release* (e.g. 'lr'), not the press. We buffer press events while
+      // waiting for the release, then emit both press + release at time 0.
+      if (isPressEvent(event.event)) {
+        // Buffer the press — we'll emit it at time 0 once we see the release
+        this.pendingEvents.push(event)
+        this.waitingForRelease = true
+        return
       }
-      this.events.push(adjustedEvent)
 
-      this.setState('recording')
+      if (this.waitingForRelease && isReleaseEvent(event.event)) {
+        // This release marks the official game start.
+        // Re-base the timer so this moment = time 0.
+        this.mouseTracker.stop()
+        this.gameStartTime = performance.now()
+        this.mouseTracker.start(this.gameStartTime)
+
+        // Emit all buffered press events at time 0
+        for (const pending of this.pendingEvents) {
+          this.events.push({ ...pending, timeMs: 0 })
+        }
+        this.pendingEvents = []
+        this.waitingForRelease = false
+
+        // Emit this release at time 0
+        this.events.push({ ...event, timeMs: 0 })
+
+        this.setState('recording')
+        return
+      }
+
+      // Move events or other non-press/release events before the first
+      // click — discard (not meaningful before game start).
       return
     }
 
@@ -240,8 +265,15 @@ export class GameRecorder {
 }
 
 /**
- * Check if a mouse event code represents a click (button press).
+ * Check if a mouse event code represents a button press (down).
  */
-function isClickEvent(code: string): boolean {
+function isPressEvent(code: string): boolean {
   return code === 'lc' || code === 'rc' || code === 'mc' || code === 'sc'
+}
+
+/**
+ * Check if a mouse event code represents a button release (up).
+ */
+function isReleaseEvent(code: string): boolean {
+  return code === 'lr' || code === 'rr' || code === 'mr'
 }
