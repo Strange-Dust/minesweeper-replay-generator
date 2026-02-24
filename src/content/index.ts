@@ -493,11 +493,16 @@ function waitForNextGame(adapter: SiteAdapter): void {
 // --------------------------------------------------------------------------
 
 function getStatus(): StatusResponse {
+  // Read player name from adapter even outside an active session
+  const adapter = currentAdapter || detectSiteAdapter()
+  const detectedName = adapter?.getPlayerName?.() || undefined
+
   return {
     state: currentState,
     gameCount: sessionGameCount,
     eventCount: recorder?.getEventCount() ?? 0,
     elapsedMs: recorder?.getElapsedMs() ?? 0,
+    detectedPlayerName: detectedName,
   }
 }
 
@@ -505,19 +510,24 @@ function getStatus(): StatusResponse {
 // Settings auto-detection
 // --------------------------------------------------------------------------
 
+// --------------------------------------------------------------------------
+// SPA navigation monitor — settings auto-detection
+// --------------------------------------------------------------------------
+
 /**
- * On content script load, check if we're on the settings page and
- * auto-detect game settings. This runs independently of recording sessions
- * so that settings are captured even when the user isn't recording.
- *
- * Also sets up a watcher for live changes on the settings page.
+ * minesweeper.online is a single-page app. The content script loads once and
+ * survives all in-app navigation. To detect when the user visits the settings
+ * page (so we can read their chording / keyboard config), we poll for URL
+ * changes. This is more reliable than intercepting history.pushState (which
+ * would require page-world script injection).
  */
-function autoDetectSettings(): void {
-  const adapter = detectSiteAdapter()
-  if (!adapter) return
+let lastPathname = window.location.pathname
 
-  if (!adapter.isSettingsPage?.()) return
-
+/**
+ * Try to read settings from the current page's DOM.
+ * Called when we detect the user is on the settings page.
+ */
+function tryReadSettings(adapter: SiteAdapter): void {
   const settings = adapter.readSettings?.()
   if (settings) {
     console.debug('[MSR] Auto-detected settings from settings page:', settings)
@@ -525,7 +535,7 @@ function autoDetectSettings(): void {
     currentSettings = settings
   }
 
-  // Watch for live changes on the settings page
+  // Watch for live changes while on the settings page
   adapter.watchSettings?.((updatedSettings) => {
     console.debug('[MSR] Settings changed on settings page:', updatedSettings)
     saveAutoDetectedSettings(updatedSettings)
@@ -533,5 +543,53 @@ function autoDetectSettings(): void {
   })
 }
 
-// Run settings auto-detection on content script load
-autoDetectSettings()
+function startNavigationMonitor(): void {
+  const adapter = detectSiteAdapter()
+  if (!adapter) return
+
+  // Check immediately on load
+  if (adapter.isSettingsPage?.()) {
+    tryReadSettings(adapter)
+  }
+
+  // Poll for SPA navigation changes
+  setInterval(() => {
+    const currentPath = window.location.pathname
+    if (currentPath === lastPathname) return
+
+    const previousPath = lastPathname
+    lastPathname = currentPath
+    console.debug(`[MSR] SPA navigation: ${previousPath} → ${currentPath}`)
+
+    if (adapter.isSettingsPage?.()) {
+      // Just arrived on the settings page. The DOM may not be fully populated
+      // yet (SPA content loads asynchronously), so retry a few times.
+      adapter.cancelWatchSettings?.()
+      let attempts = 0
+      const tryRead = () => {
+        const settings = adapter.readSettings?.()
+        if (settings) {
+          console.debug('[MSR] Auto-detected settings after navigation:', settings)
+          saveAutoDetectedSettings(settings)
+          currentSettings = settings
+          // Now watch for live changes
+          adapter.watchSettings?.((updated) => {
+            console.debug('[MSR] Settings changed on settings page:', updated)
+            saveAutoDetectedSettings(updated)
+            currentSettings = updated
+          })
+        } else if (attempts < 5) {
+          attempts++
+          setTimeout(tryRead, 300)
+        }
+      }
+      tryRead()
+    } else if (previousPath === '/settings') {
+      // Left the settings page — stop watching for changes
+      adapter.cancelWatchSettings?.()
+    }
+  }, 500)
+}
+
+// Start on content script load
+startNavigationMonitor()

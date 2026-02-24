@@ -55,6 +55,8 @@ export interface StatusResponse {
   eventCount: number
   /** Elapsed time in ms for the current game */
   elapsedMs?: number
+  /** Player name auto-detected from the site (e.g. logged-in username) */
+  detectedPlayerName?: string
 }
 
 // ============================================================================

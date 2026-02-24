@@ -155,6 +155,11 @@ async function refreshStatus(): Promise<void> {
   const response = await sendToContentScript({ type: 'GET_STATUS' }) as StatusResponse | null
   updateRecordingUI(response)
 
+  // Show auto-detected player name as placeholder if the user hasn't typed one
+  if (response?.detectedPlayerName && !playerNameInput.value.trim()) {
+    playerNameInput.placeholder = response.detectedPlayerName
+  }
+
   // If a new game was saved during this session, refresh the game list
   if (response && response.gameCount > lastSessionGameCount) {
     lastSessionGameCount = response.gameCount

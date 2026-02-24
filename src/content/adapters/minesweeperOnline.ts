@@ -58,22 +58,23 @@ function getSkinPrefix(): string | null {
 }
 
 /**
- * Extract the cell state suffix from a cell element's classes.
+ * Extract all valid state suffixes from a cell element's classes.
  * Given a skin prefix like "hdd", looks for classes like "hdd_closed", "hdd_type3", etc.
- * Returns the suffix (e.g. "closed", "type3") or null.
+ * Returns an array of suffixes (e.g. ["closed", "flag"]). A cell can have multiple
+ * state classes simultaneously (e.g. xp_closed + xp_flag on a flagged cell).
  */
-function extractStateSuffix(cellElement: Element, skinPrefix: string): string | null {
+function extractStateSuffixes(cellElement: Element, skinPrefix: string): string[] {
   const prefix = skinPrefix + '_'
+  const suffixes: string[] = []
   for (const cls of cellElement.classList) {
     if (cls.startsWith(prefix)) {
       const suffix = cls.slice(prefix.length)
-      // Skip non-state classes (e.g. hdd_closed_flag is a sub-skin class)
       if (VALID_CELL_SUFFIXES.has(suffix)) {
-        return suffix
+        suffixes.push(suffix)
       }
     }
   }
-  return null
+  return suffixes
 }
 
 /**
@@ -242,10 +243,10 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
 
       const cells = document.querySelectorAll('#AreaBlock .cell')
       for (const cell of cells) {
-        const suffix = extractStateSuffix(cell, prefix)
+        const suffixes = extractStateSuffixes(cell, prefix)
         const isMine =
-          suffix === 'type10' || suffix === 'type11' || suffix === 'flag' ||
-          (result === 'won' && suffix === 'closed')
+          suffixes.includes('type10') || suffixes.includes('type11') || suffixes.includes('flag') ||
+          (result === 'won' && suffixes.includes('closed'))
         if (isMine) {
           const pos = extractCellPosition(cell)
           if (pos) {
