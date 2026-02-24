@@ -32,6 +32,36 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 - Pixel coordinates: `(x, y)`, standard screen coordinates
 - RAWVF output: `(col, row)`, 1-indexed (conversion handled by the writer)
 
+### SPA navigation and zombie observers
+minesweeper.online is a single-page app (SPA). The content script loads once on first page load and survives all subsequent in-app navigation — clicking links to settings, leaderboards, etc. does NOT trigger a full page reload, so `document_idle` doesn't re-fire. The SPA destroys and recreates DOM elements as the user navigates.
+
+This causes a critical problem: **zombie observers**. Any `MutationObserver` or `addEventListener` attached to a DOM element becomes a zombie when the SPA destroys that element — the observer/listener is still registered on the detached node but will never fire again. The code must handle this for:
+
+1. **Board presence** — Polled every 300ms (`BOARD_POLL_INTERVAL_MS`). Compares the current `adapter.findBoardElement()` result against `lastKnownBoardElement` by identity (`===`) and `document.contains()`. When the element changes or disappears, all observers on the old element are cancelled and fresh ones are attached to the new element.
+
+2. **Settings page watchers** — When the user navigates TO `/settings`, event listeners are attached to the settings DOM elements (`#property_chording`, etc.). When the user navigates AWAY, those elements are destroyed by the SPA. The navigation monitor (polls `window.location.pathname` every 500ms) calls `cancelWatchSettings()` on departure and re-attaches fresh listeners with `readAndWatchSettings()` on each arrival.
+
+3. **Game end / board reset observers** — `MutationObserver` instances on `#top_area_face` and `#AreaBlock` become zombies when the board is destroyed. The board presence monitor cancels and recreates them.
+
+**Key rule:** Never assume a DOM element or observer from a previous page view is still valid. Always cancel old watchers before attaching new ones, and always query the DOM fresh.
+
+### Settings architecture
+Settings (chording mode, keyboard-as-mouse) can come from two sources:
+- **Auto-detected**: Parsed from the site's settings page DOM whenever the user visits `/settings`
+- **Manual override**: Configured by the user in the extension popup
+
+Both are stored independently in `browser.storage.local` via `StoredSettings`:
+- `autoDetectedSettings: GameSettings | null` — always updated when visiting settings page, even if manual override is active
+- `manualSettings: GameSettings | null` — set when user enables manual override
+- `manualOverride: boolean` — which source is active
+
+Effective settings priority: `manualSettings` (if override active) → `autoDetectedSettings` → `DEFAULT_SETTINGS`
+
+This ensures the user can toggle manual override on/off without losing auto-detected values.
+
+### First-click timing convention
+In minesweeper replays, the timer starts on release (not press). The recorder buffers press events in `ready` state. When the first release event arrives, both the buffered press and the release are emitted at timeMs=0, and the timer starts from the release timestamp.
+
 ## Site Adapters
 The `SiteAdapter` interface in `src/content/siteAdapters.ts` defines what each adapter must provide:
 - `matches()` — detect if the current page is the target site
@@ -105,13 +135,18 @@ src/
 │   └── popup.ts            — popup logic (controls, status, download)
 ├── rawvf/writer.ts         — converts RecordingData to .rawvf text
 ├── recording/
-│   ├── recorder.ts         — GameRecorder orchestrator
-│   ├── mouseTracker.ts     — mouse event capture on board element
-│   └── boardTracker.ts     — MutationObserver-based cell state tracking
+│   ├── recorder.ts         — GameRecorder orchestrator (state machine, event buffering)
+│   ├── mouseTracker.ts     — mouse + keyboard event capture on board element
+├── storage/
+│   ├── gameStorage.ts      — replay persistence (50MB budget)
+│   └── settingsStorage.ts  — settings persistence (auto-detected + manual override)
 ├── types/
 │   ├── rawvf.ts            — board, event, recording types
-│   └── messages.ts         — extension messaging types
-└── utils/browser.ts        — webextension-polyfill re-export
+│   ├── messages.ts         — extension messaging types
+│   └── settings.ts         — GameSettings, StoredSettings, ChordingMode types
+└── utils/
+    ├── browser.ts          — webextension-polyfill re-export
+    └── zip.ts              — minimal zip creation for multi-game downloads
 docs/
 ├── minesweeper terminology.md
 ├── minesweeper statistics.md
@@ -125,4 +160,4 @@ Reference docs live in `docs/`:
 - **rawvf spec.md** — the RAWVF file format grammar and field definitions
 
 ## Current Status
-First site adapter (minesweeper.online) is implemented. Next steps: end-to-end testing, verifying RAWVF output correctness.
+First site adapter (minesweeper.online) is implemented and tested. Settings auto-detection, manual override, SPA navigation handling, multi-game sessions, and RAWVF output are all functional.

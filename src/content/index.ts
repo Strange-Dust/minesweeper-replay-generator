@@ -520,26 +520,50 @@ function getStatus(): StatusResponse {
  * page (so we can read their chording / keyboard config), we poll for URL
  * changes. This is more reliable than intercepting history.pushState (which
  * would require page-world script injection).
+ *
+ * SPA zombie elements:
+ *   When the user navigates away from the settings page, the SPA destroys
+ *   the settings DOM elements. Any event listeners attached to those elements
+ *   (from watchSettings) become "zombies" — still registered on detached
+ *   nodes but never firing. We must cancelWatchSettings() when leaving the
+ *   page, and re-attach fresh watchers each time the user arrives on the
+ *   settings page, since the DOM elements are brand new.
  */
 let lastPathname = window.location.pathname
 
 /**
- * Try to read settings from the current page's DOM.
- * Called when we detect the user is on the settings page.
+ * Save auto-detected settings to storage and update the in-memory
+ * currentSettings to the correct effective value (manual override
+ * takes priority if active).
  */
-function tryReadSettings(adapter: SiteAdapter): void {
+async function persistAutoDetectedSettings(settings: GameSettings): Promise<void> {
+  await saveAutoDetectedSettings(settings)
+  // Always re-derive the effective settings so manual override is respected
+  currentSettings = await getEffectiveSettings()
+}
+
+/**
+ * Read settings from the DOM and start watching for live changes.
+ * Called every time the user arrives on the settings page.
+ *
+ * Because SPA navigation destroys and recreates DOM elements, this
+ * always cancels old watchers first (they'd be zombies on detached nodes)
+ * and attaches fresh ones to the newly created elements.
+ */
+function readAndWatchSettings(adapter: SiteAdapter): void {
+  // Always cancel first — old watchers may be zombies on detached DOM nodes
+  adapter.cancelWatchSettings?.()
+
   const settings = adapter.readSettings?.()
   if (settings) {
     console.debug('[MSR] Auto-detected settings from settings page:', settings)
-    saveAutoDetectedSettings(settings)
-    currentSettings = settings
+    persistAutoDetectedSettings(settings)
   }
 
   // Watch for live changes while on the settings page
   adapter.watchSettings?.((updatedSettings) => {
     console.debug('[MSR] Settings changed on settings page:', updatedSettings)
-    saveAutoDetectedSettings(updatedSettings)
-    currentSettings = updatedSettings
+    persistAutoDetectedSettings(updatedSettings)
   })
 }
 
@@ -549,7 +573,7 @@ function startNavigationMonitor(): void {
 
   // Check immediately on load
   if (adapter.isSettingsPage?.()) {
-    tryReadSettings(adapter)
+    readAndWatchSettings(adapter)
   }
 
   // Poll for SPA navigation changes
@@ -564,20 +588,10 @@ function startNavigationMonitor(): void {
     if (adapter.isSettingsPage?.()) {
       // Just arrived on the settings page. The DOM may not be fully populated
       // yet (SPA content loads asynchronously), so retry a few times.
-      adapter.cancelWatchSettings?.()
       let attempts = 0
       const tryRead = () => {
-        const settings = adapter.readSettings?.()
-        if (settings) {
-          console.debug('[MSR] Auto-detected settings after navigation:', settings)
-          saveAutoDetectedSettings(settings)
-          currentSettings = settings
-          // Now watch for live changes
-          adapter.watchSettings?.((updated) => {
-            console.debug('[MSR] Settings changed on settings page:', updated)
-            saveAutoDetectedSettings(updated)
-            currentSettings = updated
-          })
+        if (adapter.readSettings?.()) {
+          readAndWatchSettings(adapter)
         } else if (attempts < 5) {
           attempts++
           setTimeout(tryRead, 300)
@@ -585,7 +599,9 @@ function startNavigationMonitor(): void {
       }
       tryRead()
     } else if (previousPath === '/settings') {
-      // Left the settings page — stop watching for changes
+      // Left the settings page — stop watching for changes.
+      // The DOM elements listeners were attached to are being destroyed
+      // by the SPA, making those listeners zombies.
       adapter.cancelWatchSettings?.()
     }
   }, 500)

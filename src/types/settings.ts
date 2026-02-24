@@ -51,12 +51,17 @@ export interface GameSettings {
 
 /**
  * Stored settings with metadata about source and manual override.
+ *
+ * Auto-detected and manual settings are stored independently so that:
+ *   - Auto-detection always saves, even when manual override is active
+ *   - Disabling manual override correctly reverts to the last auto-detected values
+ *   - The popup can show both the active and auto-detected values
  */
 export interface StoredSettings {
-  /** The actual settings values */
-  settings: GameSettings
-  /** Whether these were auto-detected from the site's settings page */
-  autoDetected: boolean
+  /** Auto-detected settings from the site's settings page (always updated) */
+  autoDetectedSettings: GameSettings | null
+  /** Manually configured settings from the popup (set when user enables override) */
+  manualSettings: GameSettings | null
   /** Whether the user has chosen to manually override auto-detected settings */
   manualOverride: boolean
   /** ISO timestamp of when settings were last updated */

@@ -500,13 +500,21 @@ async function refreshSettings(): Promise<void> {
 }
 
 function updateSettingsUI(stored: StoredSettings): void {
-  const { settings, autoDetected, manualOverride: isManual } = stored
+  const isManual = stored.manualOverride
+  const hasAutoDetected = stored.autoDetectedSettings !== null
+
+  // Effective settings: manual if override active, otherwise auto-detected, otherwise defaults
+  const effectiveSettings = (isManual && stored.manualSettings)
+    ? stored.manualSettings
+    : (stored.autoDetectedSettings ?? DEFAULT_SETTINGS)
 
   // Status line
   if (isManual) {
     settingsStatusEl.className = 'settings-status detected'
-    settingsStatusText.textContent = 'Manual override active'
-  } else if (autoDetected) {
+    settingsStatusText.textContent = hasAutoDetected
+      ? 'Manual override active (auto-detected settings saved)'
+      : 'Manual override active'
+  } else if (hasAutoDetected) {
     settingsStatusEl.className = 'settings-status detected'
     settingsStatusText.textContent = 'Auto-detected from settings page'
   } else {
@@ -517,12 +525,12 @@ function updateSettingsUI(stored: StoredSettings): void {
   // Show/hide warning icon on the collapsed summary
   const summaryEl = document.getElementById('settings-summary')
   if (summaryEl) {
-    summaryEl.textContent = (autoDetected || isManual) ? 'Settings' : '⚠️ Settings'
+    summaryEl.textContent = (hasAutoDetected || isManual) ? 'Settings' : '⚠️ Settings'
   }
 
-  // Current values display
-  chordingDisplay.textContent = formatChordingMode(settings.chording)
-  keyboardDisplay.textContent = formatKeyboardConfig(settings.keyboardMouse)
+  // Current values display (shows effective settings)
+  chordingDisplay.textContent = formatChordingMode(effectiveSettings.chording)
+  keyboardDisplay.textContent = formatKeyboardConfig(effectiveSettings.keyboardMouse)
 
   // Manual override checkbox
   manualOverride.checked = isManual
@@ -530,11 +538,12 @@ function updateSettingsUI(stored: StoredSettings): void {
   // Manual controls visibility
   if (isManual) {
     manualSettingsEl.classList.remove('hidden')
-    chordingSelect.value = settings.chording
-    keyboardEnabled.checked = settings.keyboardMouse.enabled
-    leftKeySelect.value = String(settings.keyboardMouse.leftKeyCode)
-    rightKeySelect.value = String(settings.keyboardMouse.rightKeyCode)
-    keyboardKeysEl.classList.toggle('hidden', !settings.keyboardMouse.enabled)
+    const manualValues = stored.manualSettings ?? effectiveSettings
+    chordingSelect.value = manualValues.chording
+    keyboardEnabled.checked = manualValues.keyboardMouse.enabled
+    leftKeySelect.value = String(manualValues.keyboardMouse.leftKeyCode)
+    rightKeySelect.value = String(manualValues.keyboardMouse.rightKeyCode)
+    keyboardKeysEl.classList.toggle('hidden', !manualValues.keyboardMouse.enabled)
   } else {
     manualSettingsEl.classList.add('hidden')
   }
@@ -557,9 +566,10 @@ function formatKeyboardConfig(config: { enabled: boolean; leftKeyCode: number; r
 
 async function onManualOverrideChange(): Promise<void> {
   if (manualOverride.checked) {
-    // Enable manual override with current effective settings as starting values
+    // Enable manual override — seed with current effective settings as starting values
     const stored = await loadSettings()
-    await saveManualSettings(stored.settings)
+    const seedSettings = stored.autoDetectedSettings ?? DEFAULT_SETTINGS
+    await saveManualSettings(seedSettings)
   } else {
     await clearManualOverride()
   }

@@ -5,7 +5,9 @@
  *   1. Auto-detected by parsing the site's settings page
  *   2. Manually configured by the user in the extension popup
  *
- * Manual overrides take priority over auto-detected settings.
+ * Both are stored independently. Manual overrides take priority when active,
+ * but auto-detected settings are always saved so they're available as a
+ * fallback when the user disables the override.
  */
 
 import browser from '../utils/browser'
@@ -23,13 +25,13 @@ export async function loadSettings(): Promise<StoredSettings> {
   const data = await browser.storage.local.get(SETTINGS_KEY)
   const stored = data[SETTINGS_KEY] as StoredSettings | undefined
 
-  if (stored?.settings) {
+  if (stored) {
     return stored
   }
 
   return {
-    settings: { ...DEFAULT_SETTINGS },
-    autoDetected: false,
+    autoDetectedSettings: null,
+    manualSettings: null,
     manualOverride: false,
     lastUpdated: '',
   }
@@ -37,18 +39,16 @@ export async function loadSettings(): Promise<StoredSettings> {
 
 /**
  * Save auto-detected settings from the site's settings page.
- * Only updates if the user hasn't enabled manual override.
+ * Always saves, even when manual override is active — the auto-detected
+ * values are stored separately and used as a fallback when the user
+ * disables the override.
  */
 export async function saveAutoDetectedSettings(settings: GameSettings): Promise<void> {
   const current = await loadSettings()
 
-  // Don't overwrite manual overrides
-  if (current.manualOverride) return
-
   const stored: StoredSettings = {
-    settings,
-    autoDetected: true,
-    manualOverride: false,
+    ...current,
+    autoDetectedSettings: settings,
     lastUpdated: new Date().toISOString(),
   }
   await browser.storage.local.set({ [SETTINGS_KEY]: stored })
@@ -58,9 +58,11 @@ export async function saveAutoDetectedSettings(settings: GameSettings): Promise<
  * Save manually configured settings from the popup.
  */
 export async function saveManualSettings(settings: GameSettings): Promise<void> {
+  const current = await loadSettings()
+
   const stored: StoredSettings = {
-    settings,
-    autoDetected: false,
+    ...current,
+    manualSettings: settings,
     manualOverride: true,
     lastUpdated: new Date().toISOString(),
   }
@@ -69,13 +71,11 @@ export async function saveManualSettings(settings: GameSettings): Promise<void> 
 
 /**
  * Clear manual override — revert to auto-detected settings if available.
- * If no auto-detected settings exist, reverts to defaults.
  */
 export async function clearManualOverride(): Promise<void> {
   const current = await loadSettings()
   const stored: StoredSettings = {
-    settings: current.autoDetected ? current.settings : { ...DEFAULT_SETTINGS },
-    autoDetected: current.autoDetected,
+    ...current,
     manualOverride: false,
     lastUpdated: new Date().toISOString(),
   }
@@ -83,10 +83,13 @@ export async function clearManualOverride(): Promise<void> {
 }
 
 /**
- * Get just the effective GameSettings (convenience for callers
- * that don't need the metadata).
+ * Get the effective GameSettings — manual override if active,
+ * otherwise auto-detected, otherwise defaults.
  */
 export async function getEffectiveSettings(): Promise<GameSettings> {
   const stored = await loadSettings()
-  return stored.settings
+  if (stored.manualOverride && stored.manualSettings) {
+    return stored.manualSettings
+  }
+  return stored.autoDetectedSettings ?? { ...DEFAULT_SETTINGS }
 }
