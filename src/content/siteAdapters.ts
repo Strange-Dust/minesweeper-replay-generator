@@ -34,6 +34,12 @@ export interface SiteAdapter {
   getVersion?(): string
 
   /**
+   * Detect the current player's name from the site (e.g. logged-in username).
+   * Returns null/undefined if not available or not logged in.
+   */
+  getPlayerName?(): string | null
+
+  /**
    * Check if this adapter matches the current page.
    * Should return true if this page is the minesweeper site this adapter supports.
    */

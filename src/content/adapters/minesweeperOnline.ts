@@ -141,6 +141,11 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       return ''
     },
 
+    getPlayerName() {
+      const el = document.querySelector('.header_username')
+      return el?.textContent?.trim() || null
+    },
+
     matches() {
       return window.location.hostname === 'minesweeper.online'
     },

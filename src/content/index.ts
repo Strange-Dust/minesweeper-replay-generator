@@ -34,6 +34,17 @@ import { saveGame } from '../storage/gameStorage'
 import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
 
 // --------------------------------------------------------------------------
+// Configuration
+// --------------------------------------------------------------------------
+
+/**
+ * How often (ms) to poll for board presence changes (SPA navigation, element
+ * replacement). Lower = more responsive to difficulty switches and page
+ * changes, but slightly more CPU. 250–500ms is a reasonable range.
+ */
+const BOARD_POLL_INTERVAL_MS = 300
+
+// --------------------------------------------------------------------------
 // State
 // --------------------------------------------------------------------------
 
@@ -189,7 +200,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
   stopBoardPresenceMonitor()
   lastKnownBoardElement = adapter.findBoardElement()
 
-  const intervalMS = 500
+  const intervalMS = BOARD_POLL_INTERVAL_MS
   boardPresenceInterval = setInterval(() => {
     if (!sessionActive) return
 
@@ -324,12 +335,14 @@ function startNextGame(adapter: SiteAdapter): void {
   console.debug('[MSR] startNextGame: board', boardConfig.cols, 'x', boardConfig.rows, ', squareSize', boardConfig.squareSize)
 
   // Create a new recorder for this game
+  // Player name priority: explicit override from popup > auto-detected from site
+  const effectivePlayerName = playerName || adapter.getPlayerName?.() || undefined
   recorder = new GameRecorder({
     board: boardConfig,
     metadata: {
       program: adapter.getProgramName(),
       version: adapter.getVersion?.(),
-      player: playerName,
+      player: effectivePlayerName,
       timestamp: new Date().toISOString(),
       questionMarks: false,
     },
