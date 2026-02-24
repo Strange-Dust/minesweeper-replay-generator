@@ -478,17 +478,36 @@ function escapeAttr(str: string): string {
 // Settings UI
 // --------------------------------------------------------------------------
 
-/** Common key codes available on minesweeper.online */
+/** Key codes for the keyboard-as-mouse dropdowns */
 const KEY_OPTIONS: { code: number; label: string }[] = [
   { code: 32, label: 'Space' },
+  { code: 17, label: 'Ctrl' },
+  { code: 18, label: 'Alt' },
   { code: 65, label: 'A' },
+  { code: 66, label: 'B' },
+  { code: 67, label: 'C' },
   { code: 68, label: 'D' },
+  { code: 69, label: 'E' },
   { code: 70, label: 'F' },
+  { code: 71, label: 'G' },
+  { code: 72, label: 'H' },
+  { code: 73, label: 'I' },
   { code: 74, label: 'J' },
   { code: 75, label: 'K' },
   { code: 76, label: 'L' },
+  { code: 77, label: 'M' },
+  { code: 78, label: 'N' },
+  { code: 79, label: 'O' },
+  { code: 80, label: 'P' },
+  { code: 81, label: 'Q' },
+  { code: 82, label: 'R' },
   { code: 83, label: 'S' },
+  { code: 84, label: 'T' },
+  { code: 85, label: 'U' },
+  { code: 86, label: 'V' },
   { code: 87, label: 'W' },
+  { code: 88, label: 'X' },
+  { code: 89, label: 'Y' },
   { code: 90, label: 'Z' },
 ]
 
