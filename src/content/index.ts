@@ -742,3 +742,36 @@ function startNavigationMonitor(): void {
 
 // Start on content script load
 startNavigationMonitor()
+checkAlwaysRecord()
+
+// --------------------------------------------------------------------------
+// Always-record auto-start
+// --------------------------------------------------------------------------
+
+/**
+ * If the user has enabled "Always record", automatically start a session
+ * when the content script loads (page load, extension install/update, or
+ * SPA navigation that injects the script into an already-open tab).
+ *
+ * Also listens for storage changes so that toggling the option in the popup
+ * takes effect immediately without a page reload.
+ */
+async function checkAlwaysRecord(): Promise<void> {
+  const prefs = await browser.storage.local.get(['alwaysRecord', 'playerName'])
+  if (prefs.alwaysRecord === true && !sessionActive) {
+    playerName = (typeof prefs.playerName === 'string' && prefs.playerName.trim())
+      ? prefs.playerName.trim()
+      : undefined
+    console.debug('[MSR] Always-record enabled, auto-starting session')
+    await handleStartSession()
+  }
+}
+
+// React to the user toggling "Always record" in the popup while the page is open
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
+  if (changes.alwaysRecord?.newValue === true && !sessionActive) {
+    console.debug('[MSR] Always-record toggled on, auto-starting session')
+    checkAlwaysRecord()
+  }
+})

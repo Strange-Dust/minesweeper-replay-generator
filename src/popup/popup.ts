@@ -45,6 +45,7 @@ const btnDelete = document.getElementById('btn-delete') as HTMLButtonElement
 const btnClearAll = document.getElementById('btn-clear-all') as HTMLButtonElement
 const playerNameInput = document.getElementById('player-name') as HTMLInputElement
 const winsOnlyCheckbox = document.getElementById('wins-only') as HTMLInputElement
+const alwaysRecordCheckbox = document.getElementById('always-record') as HTMLInputElement
 
 // Settings elements
 const settingsStatusEl = document.getElementById('settings-status') as HTMLDivElement
@@ -81,11 +82,13 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null
 
 async function init(): Promise<void> {
   // Load saved preferences
-  const prefs = await browser.storage.local.get(['playerName', 'winsOnly'])
+  const prefs = await browser.storage.local.get(['playerName', 'winsOnly', 'alwaysRecord'])
   if (prefs.playerName && typeof prefs.playerName === 'string') {
     playerNameInput.value = prefs.playerName
   }
   winsOnlyCheckbox.checked = prefs.winsOnly === true
+  alwaysRecordCheckbox.checked = prefs.alwaysRecord === true
+  updateAlwaysRecordUI(prefs.alwaysRecord === true)
 
   // Event listeners
   playerNameInput.addEventListener('input', () => {
@@ -93,6 +96,11 @@ async function init(): Promise<void> {
   })
   winsOnlyCheckbox.addEventListener('change', () => {
     browser.storage.local.set({ winsOnly: winsOnlyCheckbox.checked })
+  })
+  alwaysRecordCheckbox.addEventListener('change', () => {
+    const enabled = alwaysRecordCheckbox.checked
+    browser.storage.local.set({ alwaysRecord: enabled })
+    updateAlwaysRecordUI(enabled)
   })
   btnStart.addEventListener('click', startRecording)
   btnStop.addEventListener('click', stopRecording)
@@ -139,6 +147,16 @@ async function sendToContentScript(message: { type: string; [key: string]: unkno
 // --------------------------------------------------------------------------
 // Recording controls
 // --------------------------------------------------------------------------
+
+/**
+ * Update UI when always-record is toggled.
+ * When enabled, the Record/Stop buttons are hidden since the content
+ * script auto-starts sessions.
+ */
+function updateAlwaysRecordUI(enabled: boolean): void {
+  btnStart.classList.toggle('hidden', enabled)
+  btnStop.classList.toggle('hidden', enabled)
+}
 
 async function startRecording(): Promise<void> {
   const playerName = playerNameInput.value.trim() || undefined

@@ -278,6 +278,36 @@ body {
 
 /* ---- Settings ---- */
 
+.options-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f0f1f3;
+  border-radius: 6px;
+}
+
+.options-section .setting-row {
+  margin-top: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.options-section .option-label {
+  font-size: 12px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.options-section input[type="text"] {
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
 details {
   border: 1px solid #dee2e6;
   border-radius: 6px;
