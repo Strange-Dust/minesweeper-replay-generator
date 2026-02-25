@@ -45,11 +45,15 @@
     <!-- Game history -->
     <div id="history-section" class="section">
       <div class="history-header">
-        <label class="select-all-label" title="Select all">
-          <input type="checkbox" id="select-all" />
-          <span>Saved Replays</span>
-        </label>
+        <span class="history-title">Saved Replays</span>
         <span id="storage-info" class="storage-info"></span>
+      </div>
+      <div class="selection-actions hidden" id="selection-actions">
+        <button type="button" class="link-btn" id="select-all">Select all</button>
+        <span class="select-wins-group" id="select-wins-group">
+          <span class="link-sep">·</span>
+          <button type="button" class="link-btn" id="select-wins">Select wins</button>
+        </span>
       </div>
       <div id="game-list" class="game-list">
         <div class="empty-state">No recorded games yet</div>

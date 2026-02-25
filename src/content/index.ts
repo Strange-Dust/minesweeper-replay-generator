@@ -92,6 +92,55 @@ let lastKnownBoardElement: HTMLElement | null = null
 /** Cached game settings for the current session */
 let currentSettings: GameSettings | null = null
 
+/** Interval for SPA navigation monitoring */
+let navigationMonitorInterval: ReturnType<typeof setInterval> | null = null
+
+// --------------------------------------------------------------------------
+// Extension context validity
+// --------------------------------------------------------------------------
+
+/**
+ * Check whether the extension context is still valid.
+ *
+ * When the extension is reloaded or updated, the old content script stays
+ * alive in the page but its connection to the extension is severed. Any call
+ * to a `browser.*` API will throw "Extension context invalidated". This
+ * check lets us detect that and stop gracefully.
+ */
+function isContextValid(): boolean {
+  try {
+    return browser.runtime?.id != null
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Tear down all intervals and state when the extension context is
+ * invalidated. This prevents zombie intervals from logging errors
+ * repeatedly after an extension reload/update.
+ */
+function teardownOnInvalidContext(): void {
+  console.debug('[MSR] Extension context invalidated, tearing down content script')
+  sessionActive = false
+  stopBoardPresenceMonitor()
+  if (navigationMonitorInterval !== null) {
+    clearInterval(navigationMonitorInterval)
+    navigationMonitorInterval = null
+  }
+  currentAdapter?.cancelBoardReset?.()
+  currentAdapter?.cancelBoardChange?.()
+  currentAdapter?.cancelGameEnd?.()
+  currentAdapter?.cancelWatchSettings?.()
+  if (recorder) {
+    recorder.abort()
+    recorder = null
+  }
+  currentState = 'idle'
+  // Allow re-injection by a fresh extension version
+  delete (window as any)[GUARD_KEY]
+}
+
 // --------------------------------------------------------------------------
 // Message handler
 // --------------------------------------------------------------------------
@@ -227,6 +276,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
 
   const intervalMS = BOARD_POLL_INTERVAL_MS
   boardPresenceInterval = setInterval(() => {
+    if (!isContextValid()) { teardownOnInvalidContext(); return }
     if (!sessionActive) return
 
     const currentBoardElement = adapter.findBoardElement()
@@ -484,7 +534,14 @@ async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
   if (!data) return
 
   // Check "Only save wins" preference
-  const prefs = await browser.storage.local.get('winsOnly')
+  let prefs: Record<string, unknown>
+  try {
+    prefs = await browser.storage.local.get('winsOnly')
+  } catch {
+    // Extension context invalidated (extension reloaded/updated)
+    teardownOnInvalidContext()
+    return
+  }
   if (prefs.winsOnly === true && data.result !== 'won') {
     console.debug(`[MSR] Skipping save (result=${data.result}, winsOnly=true)`)
     sessionGameCount++
@@ -660,9 +717,14 @@ let lastPathname = window.location.pathname
  * takes priority if active).
  */
 async function persistAutoDetectedSettings(settings: GameSettings): Promise<void> {
-  await saveAutoDetectedSettings(settings)
-  // Always re-derive the effective settings so manual override is respected
-  currentSettings = await getEffectiveSettings()
+  try {
+    await saveAutoDetectedSettings(settings)
+    // Always re-derive the effective settings so manual override is respected
+    currentSettings = await getEffectiveSettings()
+  } catch {
+    // Extension context invalidated (extension reloaded/updated)
+    teardownOnInvalidContext()
+  }
 }
 
 /**
@@ -700,7 +762,9 @@ function startNavigationMonitor(): void {
   }
 
   // Poll for SPA navigation changes
-  setInterval(() => {
+  navigationMonitorInterval = setInterval(() => {
+    if (!isContextValid()) { teardownOnInvalidContext(); return }
+
     const currentPath = window.location.pathname
     if (currentPath === lastPathname) return
 
@@ -757,7 +821,14 @@ checkAlwaysRecord()
  * takes effect immediately without a page reload.
  */
 async function checkAlwaysRecord(): Promise<void> {
-  const prefs = await browser.storage.local.get(['alwaysRecord', 'playerName'])
+  let prefs: Record<string, unknown>
+  try {
+    prefs = await browser.storage.local.get(['alwaysRecord', 'playerName'])
+  } catch {
+    // Extension context invalidated (extension reloaded/updated)
+    teardownOnInvalidContext()
+    return
+  }
   if (prefs.alwaysRecord === true && !sessionActive) {
     playerName = (typeof prefs.playerName === 'string' && prefs.playerName.trim())
       ? prefs.playerName.trim()
@@ -769,6 +840,7 @@ async function checkAlwaysRecord(): Promise<void> {
 
 // React to the user toggling "Always record" in the popup while the page is open
 browser.storage.onChanged.addListener((changes, area) => {
+  if (!isContextValid()) { teardownOnInvalidContext(); return }
   if (area !== 'local') return
   if (changes.alwaysRecord?.newValue === true && !sessionActive) {
     console.debug('[MSR] Always-record toggled on, auto-starting session')

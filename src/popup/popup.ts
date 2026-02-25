@@ -37,7 +37,10 @@ const statusText = document.getElementById('status-text') as HTMLSpanElement
 const liveStats = document.getElementById('live-stats') as HTMLSpanElement
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement
 const btnStop = document.getElementById('btn-stop') as HTMLButtonElement
-const selectAll = document.getElementById('select-all') as HTMLInputElement
+const selectAllBtn = document.getElementById('select-all') as HTMLButtonElement
+const selectWinsBtn = document.getElementById('select-wins') as HTMLButtonElement
+const selectWinsGroup = document.getElementById('select-wins-group') as HTMLSpanElement
+const selectionActions = document.getElementById('selection-actions') as HTMLDivElement
 const storageInfoEl = document.getElementById('storage-info') as HTMLSpanElement
 const gameListEl = document.getElementById('game-list') as HTMLDivElement
 const btnDownload = document.getElementById('btn-download') as HTMLButtonElement
@@ -96,6 +99,7 @@ async function init(): Promise<void> {
   })
   winsOnlyCheckbox.addEventListener('change', () => {
     browser.storage.local.set({ winsOnly: winsOnlyCheckbox.checked })
+    updateSelectWinsVisibility()
   })
   alwaysRecordCheckbox.addEventListener('change', () => {
     const enabled = alwaysRecordCheckbox.checked
@@ -107,7 +111,8 @@ async function init(): Promise<void> {
   btnDownload.addEventListener('click', downloadSelected)
   btnDelete.addEventListener('click', deleteSelected)
   btnClearAll.addEventListener('click', clearAll)
-  selectAll.addEventListener('change', onSelectAllChange)
+  selectAllBtn.addEventListener('click', onSelectAllClick)
+  selectWinsBtn.addEventListener('click', onSelectWinsClick)
 
   // Settings UI
   populateKeySelects()
@@ -116,6 +121,9 @@ async function init(): Promise<void> {
   keyboardEnabled.addEventListener('change', onKeyboardEnabledChange)
   leftKeySelect.addEventListener('change', onManualSettingChange)
   rightKeySelect.addEventListener('change', onManualSettingChange)
+
+  // Initial visibility for "Select wins" link
+  updateSelectWinsVisibility()
 
   // Initial data load
   await Promise.all([
@@ -233,11 +241,11 @@ async function refreshGameList(): Promise<void> {
 function renderGameList(): void {
   if (games.length === 0) {
     gameListEl.innerHTML = '<div class="empty-state">No recorded games yet</div>'
-    selectAll.disabled = true
+    selectionActions.classList.add('hidden')
     return
   }
 
-  selectAll.disabled = false
+  selectionActions.classList.remove('hidden')
 
   // Show newest first
   const sorted = [...games].reverse()
@@ -286,31 +294,45 @@ function onItemCheckboxChange(e: Event): void {
   updateActionButtons()
 }
 
-function onSelectAllChange(): void {
-  const checked = selectAll.checked
-  if (checked) {
-    games.forEach(g => selectedIds.add(g.id))
-  } else {
+function onSelectAllClick(): void {
+  const allSelected = games.length > 0 && games.every(g => selectedIds.has(g.id))
+  if (allSelected) {
     selectedIds.clear()
+  } else {
+    games.forEach(g => selectedIds.add(g.id))
   }
-
-  gameListEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => {
-    cb.checked = checked
-  })
-
+  syncCheckboxes()
+  updateSelectAllState()
   updateActionButtons()
+}
+
+function onSelectWinsClick(): void {
+  selectedIds.clear()
+  games.filter(g => g.result === 'won').forEach(g => selectedIds.add(g.id))
+  syncCheckboxes()
+  updateSelectAllState()
+  updateActionButtons()
+}
+
+function syncCheckboxes(): void {
+  gameListEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => {
+    const item = cb.closest('.game-item') as HTMLElement
+    const id = item?.dataset.id
+    if (id) cb.checked = selectedIds.has(id)
+  })
 }
 
 function updateSelectAllState(): void {
   if (games.length === 0) {
-    selectAll.checked = false
-    selectAll.indeterminate = false
+    selectAllBtn.textContent = 'Select all'
     return
   }
   const allSelected = games.every(g => selectedIds.has(g.id))
-  const someSelected = games.some(g => selectedIds.has(g.id))
-  selectAll.checked = allSelected
-  selectAll.indeterminate = someSelected && !allSelected
+  selectAllBtn.textContent = allSelected ? 'Deselect all' : 'Select all'
+}
+
+function updateSelectWinsVisibility(): void {
+  selectWinsGroup.classList.toggle('hidden', winsOnlyCheckbox.checked)
 }
 
 // --------------------------------------------------------------------------
