@@ -174,6 +174,13 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
  * Detects the site adapter, validates the board, and begins recording.
  */
 async function handleStartSession(): Promise<{ success: boolean; error?: string }> {
+  // Prevent duplicate sessions (e.g., concurrent calls from navigation monitor
+  // and checkAlwaysRecord while the first handleStartSession is still running).
+  if (sessionActive) {
+    console.debug('[MSR] handleStartSession: session already active, skipping')
+    return { success: true }
+  }
+
   const adapter = detectSiteAdapter()
   if (!adapter) {
     return {
@@ -224,6 +231,7 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
  * all completed replays available for download.
  */
 function handleStopSession(): void {
+  console.debug('[MSR] Stopping session')
   sessionActive = false
 
   // Stop monitoring
@@ -291,7 +299,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
       !document.contains(lastKnownBoardElement)
 
     if (elementReplaced) {
-      console.debug('[MSR] Board element replaced (difficulty change or page update)')
+      console.debug('[MSR] Board presence: element replaced (difficulty change or page update)')
       lastKnownBoardElement = currentBoardElement
 
       // Clean up everything attached to the old DOM nodes
@@ -311,12 +319,13 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
 
     if (!hasBoard && hadBoard) {
       // Board disappeared — user navigated away from the game page.
-      console.debug('[MSR] Board disappeared (SPA navigation)')
+      console.debug('[MSR] Board presence: board disappeared (SPA navigation away from game)')
       lastKnownBoardElement = null
 
       if (recorder) {
-        const state = recorder.getState()
-        if (state === 'recording') {
+        const recState = recorder.getState()
+        console.debug('[MSR] Board presence: aborting recorder in state', recState)
+        if (recState === 'recording') {
           recorder.abort()
           saveCompletedGame(recorder)
         } else {
@@ -332,7 +341,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
 
     } else if (hasBoard && !hadBoard) {
       // Board appeared — user navigated back to the game page.
-      console.debug('[MSR] Board appeared (SPA navigation back)')
+      console.debug('[MSR] Board presence: board appeared (SPA navigation to game)')
       lastKnownBoardElement = currentBoardElement
 
       setupBoardChangeWatcher(adapter)
@@ -443,6 +452,7 @@ function startNextGame(adapter: SiteAdapter): void {
       borderElement: adapter.findBorderElement?.() ?? undefined,
     },
     onStateChange: (state) => {
+      console.debug('[MSR] Recorder state changed:', state)
       // In multi-game mode, don't expose individual game 'finished' to the popup.
       // The session manages the transition from game-finished → ready-for-next.
       if (sessionActive && state === 'finished') return
@@ -625,15 +635,16 @@ let navigationGeneration = 0
 function handleNavigationDuringSession(adapter: SiteAdapter): void {
   const generation = ++navigationGeneration
 
-  console.debug('[MSR] Handling URL change during active session')
+  console.debug('[MSR] Navigation handler: URL changed during active session, generation =', generation)
 
   // Abort current game if any
   if (recorder) {
-    const state = recorder.getState()
-    if (state === 'recording') {
+    const recState = recorder.getState()
+    console.debug('[MSR] Navigation handler: aborting recorder in state', recState)
+    if (recState === 'recording') {
       recorder.abort()
       saveCompletedGame(recorder)
-    } else if (state === 'ready') {
+    } else if (recState === 'ready') {
       recorder.abort()
     }
     recorder = null
@@ -663,15 +674,17 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
     const boardConfig = currentAdapter.getBoardConfig()
 
     if (boardElement && boardConfig) {
-      console.debug('[MSR] Board found after URL change, re-initializing')
+      console.debug('[MSR] Navigation handler: board found after URL change, re-initializing',
+        boardConfig.cols, 'x', boardConfig.rows)
       lastKnownBoardElement = boardElement
       setupBoardChangeWatcher(currentAdapter)
       startNextGame(currentAdapter)
     } else if (attempts < MAX_ATTEMPTS) {
       attempts++
+      console.debug('[MSR] Navigation handler: board not found yet, retry', attempts, '/', MAX_ATTEMPTS)
       setTimeout(tryReInitialize, RETRY_DELAY_MS)
     } else {
-      console.debug('[MSR] No board found after URL change (navigated away from game?)')
+      console.debug('[MSR] Navigation handler: no board found after', MAX_ATTEMPTS, 'retries (navigated away from game?)')
       lastKnownBoardElement = null
       currentState = 'ready'
     }
@@ -795,6 +808,14 @@ function startNavigationMonitor(): void {
     // The URL change is the most reliable signal for these transitions.
     if (sessionActive && currentAdapter) {
       handleNavigationDuringSession(currentAdapter)
+    } else if (!sessionActive) {
+      // Always-record may have failed to start on the initial page load
+      // (e.g., user was on /my-games or /settings with no board present).
+      // Retry on every URL change until a session starts successfully.
+      // checkAlwaysRecord reads the alwaysRecord flag from storage and
+      // calls handleStartSession if appropriate — it's a no-op if the
+      // flag is off or if no board is found on the new page either.
+      checkAlwaysRecord()
     }
   }, 500)
 }
@@ -829,7 +850,11 @@ async function checkAlwaysRecord(): Promise<void> {
       ? prefs.playerName.trim()
       : undefined
     console.debug('[MSR] Always-record enabled, auto-starting session')
-    await handleStartSession()
+    const result = await handleStartSession()
+    if (!result.success) {
+      console.debug('[MSR] Always-record: session start failed:', result.error,
+        '— will retry on next SPA navigation')
+    }
   }
 }
 
