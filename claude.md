@@ -18,7 +18,9 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 - The extension must NEVER modify game state, make network requests to the target site, auto-click, or provide unfair advantages.
 - Content script reads the DOM only. It must not inject visible UI into the page.
 - Mine positions should only be read AFTER being revealed, never before.
-- This is functionally equivalent to screen recording software.
+- Our extension MUST be functionally equivalent to screen recording software.
+- It is extremely important that this extension does not have behaviour that could be mistaken for cheating.
+- It would be terrible if a user were to get banned due to anti-cheat inadvertently thinking they were cheating.
 - It is of the utmost importance that this tool be ethical and benevolent.
 
 ### Cross-browser compatibility

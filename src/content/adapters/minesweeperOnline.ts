@@ -149,6 +149,7 @@ function parseChordingValue(value: string): ChordingMode {
 /**
  * Read all relevant game settings from the settings page DOM.
  * Returns null if the settings elements are not found (not on settings page).
+ * Kept as a fallback — the localStorage bridge is the primary mechanism.
  */
 function readSettingsFromDOM(): GameSettings | null {
   const chordingEl = document.querySelector('#property_chording') as HTMLSelectElement | null
@@ -174,6 +175,64 @@ function readSettingsFromDOM(): GameSettings | null {
   }
 }
 
+/**
+ * Parse settings from the site's localStorage values.
+ *
+ * Key mapping (from minesweeper.online localStorage):
+ *   _chording:                    "1" = superclick, "2" = both (L+R), "3" = disabled
+ *   _use_keyboard:                "0" = disabled, "1" = enabled
+ *   _use_keyboard_left_button:    keyCode as string (e.g. "69" for E)
+ *   _use_keyboard_right_button:   keyCode as string (e.g. "65" for A)
+ */
+function parseLocalStorageSettings(data: Record<string, string | null>): GameSettings {
+  const chordingRaw = data['_chording']
+  const useKeyboardRaw = data['_use_keyboard']
+  const leftKeyRaw = data['_use_keyboard_left_button']
+  const rightKeyRaw = data['_use_keyboard_right_button']
+
+  const chording = chordingRaw ? parseChordingValue(chordingRaw) : DEFAULT_SETTINGS.chording
+  const keyboardEnabled = useKeyboardRaw === '1'
+  const leftKeyCode = leftKeyRaw ? parseInt(leftKeyRaw, 10) : DEFAULT_SETTINGS.keyboardMouse.leftKeyCode
+  const rightKeyCode = rightKeyRaw ? parseInt(rightKeyRaw, 10) : DEFAULT_SETTINGS.keyboardMouse.rightKeyCode
+
+  return {
+    chording,
+    keyboardMouse: {
+      enabled: keyboardEnabled,
+      leftKeyCode: isNaN(leftKeyCode) ? DEFAULT_SETTINGS.keyboardMouse.leftKeyCode : leftKeyCode,
+      rightKeyCode: isNaN(rightKeyCode) ? DEFAULT_SETTINGS.keyboardMouse.rightKeyCode : rightKeyCode,
+    },
+  }
+}
+
+/**
+ * One-shot page-world script that reads settings keys from the site's
+ * localStorage and posts them back to the content script's isolated world
+ * via window.postMessage().
+ *
+ * This script is injected via a <script> tag, executes immediately, posts
+ * the data, and the <script> element is removed. Nothing persists in the
+ * page's JS environment:
+ *   - No prototype patches (Storage.prototype is untouched)
+ *   - No persistent event listeners
+ *   - No intervals or timeouts
+ *   - No global variables
+ *
+ * The content script re-injects this on a timer to detect changes. This
+ * keeps the extension truly passive / read-only with zero page modification.
+ */
+const LOCAL_STORAGE_READ_SCRIPT = `(function() {
+  var data = {};
+  var keys = ['_chording', '_use_keyboard', '_use_keyboard_left_button', '_use_keyboard_right_button'];
+  for (var i = 0; i < keys.length; i++) {
+    data[keys[i]] = localStorage.getItem(keys[i]);
+  }
+  window.postMessage({ type: 'MSR_LOCALSTORAGE_SETTINGS', data: data }, '*');
+})();`
+
+/** How often (ms) to re-read localStorage settings via script injection. */
+const SETTINGS_POLL_INTERVAL_MS = 2000
+
 // ============================================================================
 // Adapter implementation
 // ============================================================================
@@ -182,7 +241,11 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
   let faceObserver: MutationObserver | null = null
   let resetObserver: MutationObserver | null = null
   let boardChangeObserver: MutationObserver | null = null
-  let settingsListeners: Array<{ el: EventTarget; type: string; handler: EventListener }> = []
+
+  // Settings bridge state (localStorage → content script via postMessage)
+  let bridgeMessageHandler: ((event: MessageEvent) => void) | null = null
+  let bridgePollInterval: ReturnType<typeof setInterval> | null = null
+  let cachedLocalStorageSettings: GameSettings | null = null
 
   const adapter: SiteAdapter = {
     getProgramName() {
@@ -386,41 +449,68 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
     },
 
     readSettings(): GameSettings | null {
+      // Prefer cached localStorage values (available on any page)
+      if (cachedLocalStorageSettings) return cachedLocalStorageSettings
+      // Fall back to DOM parsing if on settings page
       return readSettingsFromDOM()
     },
 
-    watchSettings(callback) {
-      // Clean up any previous listeners
-      adapter.cancelWatchSettings?.()
+    initSettingsBridge(callback) {
+      // Already running — don't double-init
+      if (bridgePollInterval) return
 
-      // Watch the relevant form elements for changes
-      const chordingEl = document.querySelector('#property_chording')
-      const keyboardEl = document.querySelector('#property_use_keyboard')
-      const leftKeyEl = document.querySelector('#property_use_keyboard_left_button')
-      const rightKeyEl = document.querySelector('#property_use_keyboard_right_button')
+      // Listen for postMessage replies from the one-shot read script.
+      bridgeMessageHandler = (event: MessageEvent) => {
+        if (event.source !== window) return
+        if (!event.data || event.data.type !== 'MSR_LOCALSTORAGE_SETTINGS') return
 
-      const onChange = () => {
-        const settings = readSettingsFromDOM()
-        if (settings) {
-          console.debug('[MSR] Settings changed on page:', settings)
+        const settings = parseLocalStorageSettings(event.data.data)
+        const changed = JSON.stringify(settings) !== JSON.stringify(cachedLocalStorageSettings)
+        cachedLocalStorageSettings = settings
+
+        if (changed) {
+          console.debug('[MSR] Settings from localStorage:', settings)
           callback(settings)
         }
       }
+      window.addEventListener('message', bridgeMessageHandler)
 
-      for (const el of [chordingEl, keyboardEl, leftKeyEl, rightKeyEl]) {
-        if (el) {
-          const handler = onChange as EventListener
-          el.addEventListener('change', handler, { passive: true })
-          settingsListeners.push({ el, type: 'change', handler })
+      /**
+       * Inject the one-shot read script. This creates a <script> element,
+       * appends it (which executes it synchronously), then removes it.
+       * The script reads 4 localStorage keys, posts them via postMessage,
+       * and leaves zero traces in the page environment.
+       */
+      const injectReadScript = () => {
+        try {
+          const script = document.createElement('script')
+          script.textContent = LOCAL_STORAGE_READ_SCRIPT
+          ;(document.head || document.documentElement).appendChild(script)
+          script.remove()
+        } catch {
+          // CSP or other restriction — silently fail, DOM fallback still works
         }
       }
+
+      // Initial read
+      injectReadScript()
+
+      // Re-read periodically to pick up changes. The injected script is
+      // stateless and ephemeral — it executes, posts data, and is gone.
+      bridgePollInterval = setInterval(injectReadScript, SETTINGS_POLL_INTERVAL_MS)
+      console.debug('[MSR] localStorage settings polling started')
     },
 
-    cancelWatchSettings() {
-      for (const { el, type, handler } of settingsListeners) {
-        el.removeEventListener(type, handler)
+    destroySettingsBridge() {
+      if (bridgePollInterval) {
+        clearInterval(bridgePollInterval)
+        bridgePollInterval = null
       }
-      settingsListeners = []
+      if (bridgeMessageHandler) {
+        window.removeEventListener('message', bridgeMessageHandler)
+        bridgeMessageHandler = null
+      }
+      cachedLocalStorageSettings = null
     },
   }
 

@@ -141,6 +141,28 @@ export interface SiteAdapter {
    * Stop watching for settings changes (cleanup).
    */
   cancelWatchSettings?(): void
+
+  // --------------------------------------------------------------------------
+  // Settings bridge (localStorage)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Initialize a bridge to read settings from the site's localStorage.
+   *
+   * Uses <script> tag injection + window.postMessage() to access the page's
+   * localStorage (which the content script's isolated world cannot read
+   * directly). Calls callback with initial values immediately and on every
+   * subsequent change.
+   *
+   * Preferred over DOM-based readSettings/watchSettings because it works on
+   * any page — the user doesn't need to visit the settings page.
+   */
+  initSettingsBridge?(callback: (settings: GameSettings) => void): void
+
+  /**
+   * Destroy the localStorage settings bridge and clean up listeners.
+   */
+  destroySettingsBridge?(): void
 }
 
 // ============================================================================

@@ -95,6 +95,9 @@ let currentSettings: GameSettings | null = null
 /** Interval for SPA navigation monitoring */
 let navigationMonitorInterval: ReturnType<typeof setInterval> | null = null
 
+/** Adapter used for the settings bridge (may differ from currentAdapter if no session is active) */
+let settingsBridgeAdapter: SiteAdapter | null = null
+
 // --------------------------------------------------------------------------
 // Extension context validity
 // --------------------------------------------------------------------------
@@ -131,7 +134,8 @@ function teardownOnInvalidContext(): void {
   currentAdapter?.cancelBoardReset?.()
   currentAdapter?.cancelBoardChange?.()
   currentAdapter?.cancelGameEnd?.()
-  currentAdapter?.cancelWatchSettings?.()
+  settingsBridgeAdapter?.destroySettingsBridge?.()
+  settingsBridgeAdapter = null
   if (recorder) {
     recorder.abort()
     recorder = null
@@ -695,27 +699,18 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
 }
 
 // --------------------------------------------------------------------------
-// Settings auto-detection
-// --------------------------------------------------------------------------
-
-// --------------------------------------------------------------------------
-// SPA navigation monitor — settings + game URL changes
+// SPA navigation monitor — settings bridge + game URL changes
 // --------------------------------------------------------------------------
 
 /**
  * minesweeper.online is a single-page app. The content script loads once and
- * survives all in-app navigation. To detect when the user visits the settings
- * page (so we can read their chording / keyboard config), we poll for URL
- * changes. This is more reliable than intercepting history.pushState (which
- * would require page-world script injection).
+ * survives all in-app navigation. We poll for URL changes to handle:
+ *   1. Game URL changes during active recording sessions (observers may be zombies)
+ *   2. Always-record retries when the user navigates to a page with a board
  *
- * SPA zombie elements:
- *   When the user navigates away from the settings page, the SPA destroys
- *   the settings DOM elements. Any event listeners attached to those elements
- *   (from watchSettings) become "zombies" — still registered on detached
- *   nodes but never firing. We must cancelWatchSettings() when leaving the
- *   page, and re-attach fresh watchers each time the user arrives on the
- *   settings page, since the DOM elements are brand new.
+ * Settings detection is handled separately by the localStorage bridge
+ * (initSettingsBridge), which works on any page without requiring the user
+ * to visit the settings page.
  */
 let lastPathname = window.location.pathname
 
@@ -735,39 +730,19 @@ async function persistAutoDetectedSettings(settings: GameSettings): Promise<void
   }
 }
 
-/**
- * Read settings from the DOM and start watching for live changes.
- * Called every time the user arrives on the settings page.
- *
- * Because SPA navigation destroys and recreates DOM elements, this
- * always cancels old watchers first (they'd be zombies on detached nodes)
- * and attaches fresh ones to the newly created elements.
- */
-function readAndWatchSettings(adapter: SiteAdapter): void {
-  // Always cancel first — old watchers may be zombies on detached DOM nodes
-  adapter.cancelWatchSettings?.()
-
-  const settings = adapter.readSettings?.()
-  if (settings) {
-    console.debug('[MSR] Auto-detected settings from settings page:', settings)
-    persistAutoDetectedSettings(settings)
-  }
-
-  // Watch for live changes while on the settings page
-  adapter.watchSettings?.((updatedSettings) => {
-    console.debug('[MSR] Settings changed on settings page:', updatedSettings)
-    persistAutoDetectedSettings(updatedSettings)
-  })
-}
-
 function startNavigationMonitor(): void {
   const adapter = detectSiteAdapter()
   if (!adapter) return
 
-  // Check immediately on load
-  if (adapter.isSettingsPage?.()) {
-    readAndWatchSettings(adapter)
-  }
+  // Initialize localStorage settings bridge.
+  // Reads chording mode, keyboard-as-mouse config, etc. from the site's
+  // localStorage via <script> injection + window.postMessage(). Works on
+  // any page — no need to visit /settings.
+  settingsBridgeAdapter = adapter
+  adapter.initSettingsBridge?.((settings) => {
+    console.debug('[MSR] Settings from localStorage bridge:', settings)
+    persistAutoDetectedSettings(settings)
+  })
 
   // Poll for SPA navigation changes
   navigationMonitorInterval = setInterval(() => {
@@ -779,26 +754,6 @@ function startNavigationMonitor(): void {
     const previousPath = lastPathname
     lastPathname = currentPath
     console.debug(`[MSR] SPA navigation: ${previousPath} → ${currentPath}`)
-
-    if (adapter.isSettingsPage?.()) {
-      // Just arrived on the settings page. The DOM may not be fully populated
-      // yet (SPA content loads asynchronously), so retry a few times.
-      let attempts = 0
-      const tryRead = () => {
-        if (adapter.readSettings?.()) {
-          readAndWatchSettings(adapter)
-        } else if (attempts < 5) {
-          attempts++
-          setTimeout(tryRead, 300)
-        }
-      }
-      tryRead()
-    } else if (previousPath === '/settings') {
-      // Left the settings page — stop watching for changes.
-      // The DOM elements listeners were attached to are being destroyed
-      // by the SPA, making those listeners zombies.
-      adapter.cancelWatchSettings?.()
-    }
 
     // Handle any URL change during an active recording session.
     // SPA navigation may destroy or recreate game DOM elements, making
