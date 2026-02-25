@@ -461,10 +461,15 @@ function startNextGame(adapter: SiteAdapter): void {
       // site animates mine reveals after the face/status indicator changes.
       readMinesAndFinalize(adapter, finishedRecorder, result, 0)
 
-      // Start waiting for the next game immediately (don't delay behind
-      // mine reading — the board reset watcher must be active right away).
+      // Create the next recorder immediately so it's already listening
+      // when the user clicks to start a new game. Without this, the
+      // first click is lost: on minesweeper.online, clicking a cell after
+      // game-end resets the face and starts a new game in one gesture.
+      // If we waited for onBoardReset (which defers via rAF), the
+      // mousedown/mouseup of that first click would fire before the
+      // recorder exists.
       if (sessionActive) {
-        waitForNextGame(adapter)
+        startNextGame(adapter)
       }
     }
   })
@@ -573,17 +578,6 @@ async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
  * After a game ends, watch for the board to reset (player starts a new game).
  * When detected, automatically start recording the next game.
  */
-function waitForNextGame(adapter: SiteAdapter): void {
-  // Show 'ready' while waiting for the next game
-  currentState = 'ready'
-
-  adapter.onBoardReset?.(() => {
-    if (sessionActive && !recorder) {
-      startNextGame(adapter)
-    }
-  })
-}
-
 // --------------------------------------------------------------------------
 // Status / data responses
 // --------------------------------------------------------------------------
