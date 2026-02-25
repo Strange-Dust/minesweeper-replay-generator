@@ -36,6 +36,21 @@ import { saveAutoDetectedSettings, getEffectiveSettings } from '../storage/setti
 import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
 
 // --------------------------------------------------------------------------
+// Double-injection guard
+// --------------------------------------------------------------------------
+// When the extension is installed or updated, the background worker injects
+// this script into already-open tabs via scripting.executeScript(). If the
+// tab later navigates to a new page, the manifest's content_scripts entry
+// also injects it. This guard prevents duplicate initialization.
+
+const GUARD_KEY = '__minesweeper_replay_generator_loaded__'
+if ((window as any)[GUARD_KEY]) {
+  // Already running in this page context — bail out silently.
+  throw new Error('[MSR] Content script already loaded, skipping duplicate.')
+}
+;(window as any)[GUARD_KEY] = true
+
+// --------------------------------------------------------------------------
 // Configuration
 // --------------------------------------------------------------------------
 

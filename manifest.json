@@ -5,7 +5,11 @@
   "description": "Records minesweeper games played online and generates .rawvf replay files.",
   "permissions": [
     "activeTab",
+    "scripting",
     "storage"
+  ],
+  "host_permissions": [
+    "https://minesweeper.online/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",

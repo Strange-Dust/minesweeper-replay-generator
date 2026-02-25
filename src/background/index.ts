@@ -23,7 +23,42 @@ browser.runtime.onInstalled.addListener((details) => {
   } else if (details.reason === 'update') {
     console.log(`Minesweeper Replay Generator updated to v${browser.runtime.getManifest().version}`)
   }
+
+  // Inject the content script into any minesweeper.online tabs that are
+  // already open. Normally content_scripts only fire on new page loads,
+  // so tabs open before install/update wouldn't have it.
+  //
+  // This is purely the same passive, read-only content script that
+  // content_scripts would inject on the next navigation. The content
+  // script has a double-injection guard so it's safe if both fire.
+  injectIntoExistingTabs()
 })
+
+/**
+ * Find all open minesweeper.online tabs and inject the content script.
+ * Best-effort: errors are logged but never thrown (the tab might be
+ * discarded, frozen, or on a restricted page like the Chrome Web Store).
+ */
+async function injectIntoExistingTabs(): Promise<void> {
+  try {
+    const tabs = await browser.tabs.query({ url: 'https://minesweeper.online/*' })
+    for (const tab of tabs) {
+      if (!tab.id) continue
+      try {
+        await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content/index.js'],
+        })
+        console.log(`[MSR] Injected content script into tab ${tab.id}: ${tab.url}`)
+      } catch (err) {
+        // Expected for tabs that are frozen, discarded, or already have it
+        console.debug(`[MSR] Could not inject into tab ${tab.id}:`, err)
+      }
+    }
+  } catch (err) {
+    console.debug('[MSR] Could not query tabs:', err)
+  }
+}
 
 // --------------------------------------------------------------------------
 // Message relay (if needed in the future)
