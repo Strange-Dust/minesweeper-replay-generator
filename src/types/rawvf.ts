@@ -72,6 +72,12 @@ export interface RecordedMouseEvent {
   x: number
   /** Pixel Y coordinate relative to the board */
   y: number
+  /**
+   * The raw DOM event timeStamp (DOMHighResTimeStamp).
+   * Used internally by the recorder for precise game-start rebasing.
+   * Not written to the RAWVF output.
+   */
+  rawTimestamp: number
 }
 
 // ============================================================================

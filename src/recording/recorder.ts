@@ -241,9 +241,14 @@ export class GameRecorder {
 
       if (this.waitingForRelease && isReleaseEvent(event.event)) {
         // This release marks the official game start.
-        // Re-base the timer so this moment = time 0.
+        // Re-base the timer using the DOM event's actual timestamp rather
+        // than performance.now().  event.rawTimestamp is a
+        // DOMHighResTimeStamp that records when the browser detected the
+        // input, not when our JS callback ran.  This eliminates event-loop
+        // latency (~5-30ms) from the game start reference and keeps our
+        // total time aligned with the site's own timer.
         this.mouseTracker.stop()
-        this.gameStartTime = performance.now()
+        this.gameStartTime = event.rawTimestamp
         this.mouseTracker.start(this.gameStartTime)
 
         // Emit all buffered press events at time 0

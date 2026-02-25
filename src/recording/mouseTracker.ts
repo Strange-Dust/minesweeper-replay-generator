@@ -218,7 +218,7 @@ export class MouseTracker {
     const code = this.keyCodeToMouseCode(domEvent.keyCode, true)
     if (!code) return
 
-    this.emitKeyboardEvent(code)
+    this.emitKeyboardEvent(code, domEvent)
   }
 
   /**
@@ -230,7 +230,7 @@ export class MouseTracker {
     const code = this.keyCodeToMouseCode(domEvent.keyCode, false)
     if (!code) return
 
-    this.emitKeyboardEvent(code)
+    this.emitKeyboardEvent(code, domEvent)
   }
 
   /**
@@ -260,6 +260,9 @@ export class MouseTracker {
 
   /**
    * Convert a DOM MouseEvent to a RecordedMouseEvent and emit it.
+   * Uses domEvent.timeStamp (the actual moment the browser detected the
+   * input) rather than performance.now() (when the JS callback runs).
+   * This eliminates event-loop latency from the recorded timestamps.
    */
   private emitEvent(code: MouseEventCode, domEvent: MouseEvent): void {
     const boardRect = this.boardElement.getBoundingClientRect()
@@ -268,8 +271,11 @@ export class MouseTracker {
     const x = Math.round(domEvent.clientX - boardRect.left)
     const y = Math.round(domEvent.clientY - boardRect.top)
 
-    // Compute elapsed time since game start
-    const timeMs = Math.round(performance.now() - this.gameStartTime)
+    // Compute elapsed time since game start using DOM event timestamps.
+    // domEvent.timeStamp is a DOMHighResTimeStamp on the same time origin
+    // as performance.now(), but reflects when the event actually occurred
+    // rather than when the callback runs (~5-30ms difference under load).
+    const timeMs = Math.max(0, Math.round(domEvent.timeStamp - this.gameStartTime))
 
     const recorded: RecordedMouseEvent = {
       type: 'mouse',
@@ -277,6 +283,7 @@ export class MouseTracker {
       event: code,
       x,
       y,
+      rawTimestamp: domEvent.timeStamp,
     }
 
     this.onEvent(recorded)
@@ -296,9 +303,10 @@ export class MouseTracker {
   /**
    * Emit a RecordedMouseEvent from a keyboard event using the last
    * known mouse position on the board.
+   * Uses domEvent.timeStamp for precise timing (same as emitEvent).
    */
-  private emitKeyboardEvent(code: MouseEventCode): void {
-    const timeMs = Math.round(performance.now() - this.gameStartTime)
+  private emitKeyboardEvent(code: MouseEventCode, domEvent: KeyboardEvent): void {
+    const timeMs = Math.max(0, Math.round(domEvent.timeStamp - this.gameStartTime))
 
     const recorded: RecordedMouseEvent = {
       type: 'mouse',
@@ -306,6 +314,7 @@ export class MouseTracker {
       event: code,
       x: this.lastMouseX,
       y: this.lastMouseY,
+      rawTimestamp: domEvent.timeStamp,
     }
 
     this.onEvent(recorded)
