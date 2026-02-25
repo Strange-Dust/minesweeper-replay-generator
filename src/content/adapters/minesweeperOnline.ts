@@ -207,6 +207,14 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       return document.querySelector('#AreaBlock') as HTMLElement | null
     },
 
+    findBorderElement() {
+      // The #game wrapper includes a visible border/padding around the board
+      // (#AreaBlock). Clicks on this border that drag into the board are
+      // treated by the site as valid clicks. The wrapper has class "noselect"
+      // which prevents text selection and allows the drag behaviour.
+      return document.querySelector('#game') as HTMLElement | null
+    },
+
     getBoardConfig(): BoardConfig | null {
       const cells = document.querySelectorAll('#AreaBlock .cell')
       if (cells.length === 0) return null

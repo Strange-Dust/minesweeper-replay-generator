@@ -440,6 +440,7 @@ function startNextGame(adapter: SiteAdapter): void {
       boardElement,
       squareSize: boardConfig.squareSize,
       keyboardMouse: currentSettings?.keyboardMouse,
+      borderElement: adapter.findBorderElement?.() ?? undefined,
     },
     onStateChange: (state) => {
       // In multi-game mode, don't expose individual game 'finished' to the popup.

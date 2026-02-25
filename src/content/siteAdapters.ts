@@ -53,6 +53,13 @@ export interface SiteAdapter {
   findBoardElement(): HTMLElement | null
 
   /**
+   * Find the border/wrapper element surrounding the board.
+   * Used to detect clicks that start in the border and drag into the board.
+   * Returns null if not applicable or not found.
+   */
+  findBorderElement?(): HTMLElement | null
+
+  /**
    * Get the board configuration (dimensions, mine count, cell size).
    * Returns null if the configuration cannot be determined.
    */

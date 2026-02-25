@@ -35,6 +35,21 @@ export interface MouseTrackerConfig {
   moveThrottleMs?: number
   /** Optional: keyboard-as-mouse configuration */
   keyboardMouse?: KeyboardMouseConfig
+  /**
+   * Optional: the border/wrapper element surrounding the board.
+   *
+   * On minesweeper.online, players can click in the border area around the
+   * board (#game wrapper) and drag into the board with the button held —
+   * the site treats this as a valid click.  Without this, the recorder
+   * would miss the press event since no mousedown fires on #AreaBlock.
+   *
+   * When provided, the tracker listens for mousedown on this element and
+   * synthesises a press event when the mouse subsequently enters the board.
+   * Only clicks originating in the immediate border are handled; clicks
+   * from further outside can produce inconsistent site behaviour and are
+   * intentionally ignored.
+   */
+  borderElement?: HTMLElement
 }
 
 /**
@@ -52,6 +67,7 @@ export class MouseTracker {
   private onEvent: MouseEventCallback
   private moveThrottleMs: number
   private keyboardMouse: KeyboardMouseConfig | undefined
+  private borderElement: HTMLElement | undefined
 
   private gameStartTime: number = 0
   private isTracking: boolean = false
@@ -61,12 +77,24 @@ export class MouseTracker {
   private lastMouseX: number = 0
   private lastMouseY: number = 0
 
+  /**
+   * Which mouse button (0=left, 1=middle, 2=right) was pressed in the
+   * border area, or -1 if none.  Used to synthesise a press event when
+   * the cursor subsequently enters the board with the button still held.
+   */
+  private borderPressButton: number = -1
+  /** Whether shift was held during the border press (for sc detection). */
+  private borderPressShift: boolean = false
+
   // Bound handlers (for proper removal)
   private handleMouseDown: (event: MouseEvent) => void
   private handleMouseUp: (event: MouseEvent) => void
   private handleMouseMove: (event: MouseEvent) => void
   private handleKeyDown: (event: KeyboardEvent) => void
   private handleKeyUp: (event: KeyboardEvent) => void
+  private handleBorderMouseDown: (event: MouseEvent) => void
+  private handleBorderMouseUp: (event: MouseEvent) => void
+  private handleBoardMouseEnter: (event: MouseEvent) => void
 
   constructor(config: MouseTrackerConfig) {
     this.boardElement = config.boardElement
@@ -74,6 +102,7 @@ export class MouseTracker {
     this.onEvent = config.onEvent
     this.moveThrottleMs = config.moveThrottleMs ?? 0  // TODO: test in case 0ms is too low and causes performance issues
     this.keyboardMouse = config.keyboardMouse
+    this.borderElement = config.borderElement
 
     // Bind event handlers
     this.handleMouseDown = this.onMouseDown.bind(this)
@@ -81,6 +110,9 @@ export class MouseTracker {
     this.handleMouseMove = this.onMouseMove.bind(this)
     this.handleKeyDown = this.onKeyDown.bind(this)
     this.handleKeyUp = this.onKeyUp.bind(this)
+    this.handleBorderMouseDown = this.onBorderMouseDown.bind(this)
+    this.handleBorderMouseUp = this.onBorderMouseUp.bind(this)
+    this.handleBoardMouseEnter = this.onBoardMouseEnter.bind(this)
   }
 
   /**
@@ -108,6 +140,17 @@ export class MouseTracker {
       document.addEventListener('keydown', this.handleKeyDown, { passive: true })
       document.addEventListener('keyup', this.handleKeyUp, { passive: true })
     }
+
+    // Border-click handling: detect clicks that originate in the border
+    // area around the board and drag into it.  See MouseTrackerConfig.
+    if (this.borderElement) {
+      this.borderPressButton = -1
+      this.borderElement.addEventListener('mousedown', this.handleBorderMouseDown, { passive: true })
+      // Listen on document for mouseup so we catch releases anywhere
+      // (user might release outside the border/board entirely).
+      document.addEventListener('mouseup', this.handleBorderMouseUp, { passive: true })
+      this.boardElement.addEventListener('mouseenter', this.handleBoardMouseEnter, { passive: true })
+    }
   }
 
   /**
@@ -124,6 +167,13 @@ export class MouseTracker {
 
     document.removeEventListener('keydown', this.handleKeyDown)
     document.removeEventListener('keyup', this.handleKeyUp)
+
+    if (this.borderElement) {
+      this.borderElement.removeEventListener('mousedown', this.handleBorderMouseDown)
+      document.removeEventListener('mouseup', this.handleBorderMouseUp)
+      this.boardElement.removeEventListener('mouseenter', this.handleBoardMouseEnter)
+      this.borderPressButton = -1
+    }
   }
 
   /**
@@ -199,6 +249,78 @@ export class MouseTracker {
     }
 
     this.emitEvent('mv', domEvent)
+  }
+
+  // --------------------------------------------------------------------------
+  // Border-click handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Track mousedown events on the border/wrapper element.
+   *
+   * On minesweeper.online the #game wrapper includes a visible border
+   * around #AreaBlock.  Clicking this border and dragging into the board
+   * is treated by the site as a valid click — cells depress and reveal
+   * on release just like a normal click.  However, no mousedown fires on
+   * #AreaBlock itself, so we would miss the press event.
+   *
+   * We only record the button here; the actual press event is synthesised
+   * in onBoardMouseEnter when the cursor crosses into the board.
+   *
+   * Clicks that originate on the board itself are ignored (those are
+   * already handled by onMouseDown).  Clicks from outside #game entirely
+   * are never seen here, which is intentional — the site's behaviour for
+   * those is inconsistent and we don't attempt to handle them.
+   */
+  private onBorderMouseDown(domEvent: MouseEvent): void {
+    if (!this.isTracking) return
+    // Ignore clicks that land on the board — already handled by onMouseDown
+    if (this.boardElement.contains(domEvent.target as Node)) return
+    this.borderPressButton = domEvent.button
+    this.borderPressShift = domEvent.shiftKey
+  }
+
+  /**
+   * Clear border-press tracking on any mouseup (listens on document so
+   * we catch releases regardless of where the cursor is).
+   */
+  private onBorderMouseUp(_domEvent: MouseEvent): void {
+    this.borderPressButton = -1
+  }
+
+  /**
+   * When the cursor enters the board with a border-pressed button held,
+   * synthesise the press event at the board entry point.
+   *
+   * The mouseenter event's clientX/clientY give us the exact position
+   * where the cursor crossed the board boundary, which is the correct
+   * coordinate for the synthesised press.
+   */
+  private onBoardMouseEnter(domEvent: MouseEvent): void {
+    if (!this.isTracking) return
+    if (this.borderPressButton < 0) return
+
+    let code: MouseEventCode
+    switch (this.borderPressButton) {
+      case 0: // Left button
+        code = (this.borderPressShift || domEvent.shiftKey) ? 'sc' : 'lc'
+        break
+      case 1: // Middle button
+        code = 'mc'
+        break
+      case 2: // Right button
+        code = 'rc'
+        break
+      default:
+        this.borderPressButton = -1
+        return
+    }
+
+    // Clear — only synthesise one press per border click
+    this.borderPressButton = -1
+    this.borderPressShift = false
+
+    this.emitEvent(code, domEvent)
   }
 
   // --------------------------------------------------------------------------

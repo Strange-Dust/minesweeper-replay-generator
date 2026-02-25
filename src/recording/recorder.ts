@@ -72,6 +72,10 @@ export class GameRecorder {
   private gameStartTime: number = 0
   private gameEndTime: number = 0
   private result: GameResult = 'unknown'
+  /** Position of the last emitted event — used to suppress redundant moves
+   *  immediately after the first click rebase. */
+  private lastEmittedX: number = -1
+  private lastEmittedY: number = -1
 
   constructor(config: RecorderConfig) {
     this.board = config.board
@@ -138,6 +142,8 @@ export class GameRecorder {
     this.gameStartTime = 0
     this.gameEndTime = 0
     this.result = 'unknown'
+    this.lastEmittedX = -1
+    this.lastEmittedY = -1
 
     this.setState('ready')
 
@@ -203,6 +209,8 @@ export class GameRecorder {
     this.gameStartTime = 0
     this.gameEndTime = 0
     this.result = 'unknown'
+    this.lastEmittedX = -1
+    this.lastEmittedY = -1
     this.setState('idle')
   }
 
@@ -241,25 +249,49 @@ export class GameRecorder {
 
       if (this.waitingForRelease && isReleaseEvent(event.event)) {
         // This release marks the official game start.
-        // Re-base the timer using the DOM event's actual timestamp rather
-        // than performance.now().  event.rawTimestamp is a
-        // DOMHighResTimeStamp that records when the browser detected the
-        // input, not when our JS callback ran.  This eliminates event-loop
-        // latency (~5-30ms) from the game start reference and keeps our
-        // total time aligned with the site's own timer.
+        //
+        // Use performance.now() — captured here in our event handler —
+        // rather than domEvent.timeStamp.  Both are on the same clock
+        // (relative to performance.timeOrigin), so mixing them in the
+        // subtraction `domEvent.timeStamp - gameStartTime` is valid.
+        //
+        // Why not domEvent.timeStamp?  The timestamp reflects when the
+        // browser detected the input, BEFORE any JavaScript runs.  The
+        // site's own timer starts from performance.now() inside its
+        // handler, which fires before ours (target/bubble ordering).
+        // By the time our handler runs, the site has already spent
+        // ~10-15ms processing the first click (revealing cells,
+        // cascading openings, etc.) and then started its timer.
+        // Using performance.now() here — after the site's handler —
+        // aligns our time-zero with the site's.
+        //
+        // At game end the site's processing is much lighter (~1-2ms),
+        // so using domEvent.timeStamp for end events is fine.  The net
+        // effect is that our total game time closely matches the site's
+        // reported duration.  Relative timing between events is
+        // preserved exactly (all shifted by the same constant).
+        const gameStartNow = performance.now()
         this.mouseTracker.stop()
-        this.gameStartTime = event.rawTimestamp
-        this.mouseTracker.start(this.gameStartTime)
+        this.gameStartTime = gameStartNow
+        this.mouseTracker.start(gameStartNow)
 
-        // Emit all buffered press events at time 0
+        // Emit all buffered press events at time 0.
+        // Convention: overwrite press coordinates with the release
+        // location — for the first click the press and release should
+        // appear at the same cell position.
         for (const pending of this.pendingEvents) {
-          this.events.push({ ...pending, timeMs: 0 })
+          this.events.push({ ...pending, timeMs: 0, x: event.x, y: event.y })
         }
         this.pendingEvents = []
         this.waitingForRelease = false
 
         // Emit this release at time 0
         this.events.push({ ...event, timeMs: 0 })
+
+        // Track the first-click position so we can suppress a redundant
+        // move event that the browser fires right after the release.
+        this.lastEmittedX = event.x
+        this.lastEmittedY = event.y
 
         this.setState('recording')
         return
@@ -271,6 +303,24 @@ export class GameRecorder {
     }
 
     if (this.state === 'recording') {
+      // Suppress a redundant move event immediately after the first-click
+      // rebase — the browser can fire a mousemove to the same pixel
+      // position 1-2ms after the release, which adds a useless mv line.
+      if (
+        event.event === 'mv' &&
+        this.lastEmittedX >= 0 &&
+        event.x === this.lastEmittedX &&
+        event.y === this.lastEmittedY
+      ) {
+        // Clear tracking — only suppress the very first redundant move
+        this.lastEmittedX = -1
+        this.lastEmittedY = -1
+        return
+      }
+      // Any non-suppressed event clears the tracking
+      this.lastEmittedX = -1
+      this.lastEmittedY = -1
+
       this.events.push(event)
     }
   }
