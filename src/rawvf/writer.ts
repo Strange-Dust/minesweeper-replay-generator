@@ -42,7 +42,7 @@ export function generateRawvfBlob(recording: RecordingData): Blob {
 
 /**
  * Generate a suggested filename for the RAWVF export.
- * Format: "replay_YYYYMMDD_HHMMSS.rawvf"
+ * Format / Naming Convention: "replay_YYYYMMDD_HHMMSS.rawvf"
  */
 export function generateFilename(recording: RecordingData): string {
   const level = getLevelName(
@@ -53,7 +53,7 @@ export function generateFilename(recording: RecordingData): string {
   const timeSec = (recording.totalTimeMs / 1000).toFixed(3)
   const dateStr = formatDateForFilename(recording.metadata.timestamp)
 
-  return `${level}_${timeSec}s_${dateStr}.rawvf`
+  return `${dateStr}_${level}_${timeSec}s.rawvf`
 }
 
 // ============================================================================
