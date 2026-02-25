@@ -813,10 +813,20 @@ async function checkAlwaysRecord(): Promise<void> {
   }
 }
 
-// React to the user toggling "Always record" in the popup while the page is open
+// React to storage changes from the popup while the page is open
 browser.storage.onChanged.addListener((changes, area) => {
   if (!isContextValid()) { teardownOnInvalidContext(); return }
   if (area !== 'local') return
+
+  // Keep playerName in sync — the user may type a name in the popup at any
+  // time, including mid-session. The next game recorder will pick it up.
+  if (changes.playerName) {
+    const newName = typeof changes.playerName.newValue === 'string' && changes.playerName.newValue.trim()
+      ? changes.playerName.newValue.trim()
+      : undefined
+    playerName = newName
+  }
+
   if (changes.alwaysRecord?.newValue === true && !sessionActive) {
     console.debug('[MSR] Always-record toggled on, auto-starting session')
     checkAlwaysRecord()
