@@ -328,7 +328,7 @@ function updateSelectAllState(): void {
     return
   }
   const allSelected = games.every(g => selectedIds.has(g.id))
-  selectAllBtn.textContent = allSelected ? 'Deselect all' : 'Select all'
+  selectAllBtn.textContent = allSelected ? 'Select none' : 'Select all'
 }
 
 function updateSelectWinsVisibility(): void {
