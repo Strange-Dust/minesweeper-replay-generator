@@ -6,18 +6,11 @@
  * and timestamps relative to game start.
  *
  * Tracked events:
- *   - pointerdown (left/right/middle → lc/rc/mc)
- *   - pointerup (left/right/middle → lr/rr/mr)
- *   - pointermove (→ mv)
+ *   - mousedown (left/right/middle → lc/rc/mc)
+ *   - mouseup (left/right/middle → lr/rr/mr)
+ *   - mousemove (→ mv)
  *
  * Shift+left click is recorded as 'sc' (left click with shift).
- *
- * Uses pointer events instead of mouse events for robustness:
- *   - Pointer events fire even if the site cancels pointerdown (which
- *     suppresses the corresponding mousedown via browser spec behavior).
- *   - Combined with { capture: true }, our listeners run during the
- *     capture phase — before any site handler can stopPropagation().
- *   - Touch input is filtered out (pointerType === 'touch').
  */
 
 import type { RecordedMouseEvent, MouseEventCode } from '../types/rawvf'
@@ -94,14 +87,14 @@ export class MouseTracker {
   private borderPressShift: boolean = false
 
   // Bound handlers (for proper removal)
-  private handlePointerDown: (event: PointerEvent) => void
-  private handlePointerUp: (event: PointerEvent) => void
-  private handlePointerMove: (event: PointerEvent) => void
+  private handleMouseDown: (event: MouseEvent) => void
+  private handleMouseUp: (event: MouseEvent) => void
+  private handleMouseMove: (event: MouseEvent) => void
   private handleKeyDown: (event: KeyboardEvent) => void
   private handleKeyUp: (event: KeyboardEvent) => void
-  private handleBorderPointerDown: (event: PointerEvent) => void
-  private handleBorderPointerUp: (event: PointerEvent) => void
-  private handleBoardPointerEnter: (event: PointerEvent) => void
+  private handleBorderMouseDown: (event: MouseEvent) => void
+  private handleBorderMouseUp: (event: MouseEvent) => void
+  private handleBoardMouseEnter: (event: MouseEvent) => void
 
   constructor(config: MouseTrackerConfig) {
     this.boardElement = config.boardElement
@@ -112,14 +105,14 @@ export class MouseTracker {
     this.borderElement = config.borderElement
 
     // Bind event handlers
-    this.handlePointerDown = this.onPointerDown.bind(this)
-    this.handlePointerUp = this.onPointerUp.bind(this)
-    this.handlePointerMove = this.onPointerMove.bind(this)
+    this.handleMouseDown = this.onMouseDown.bind(this)
+    this.handleMouseUp = this.onMouseUp.bind(this)
+    this.handleMouseMove = this.onMouseMove.bind(this)
     this.handleKeyDown = this.onKeyDown.bind(this)
     this.handleKeyUp = this.onKeyUp.bind(this)
-    this.handleBorderPointerDown = this.onBorderPointerDown.bind(this)
-    this.handleBorderPointerUp = this.onBorderPointerUp.bind(this)
-    this.handleBoardPointerEnter = this.onBoardPointerEnter.bind(this)
+    this.handleBorderMouseDown = this.onBorderMouseDown.bind(this)
+    this.handleBorderMouseUp = this.onBorderMouseUp.bind(this)
+    this.handleBoardMouseEnter = this.onBoardMouseEnter.bind(this)
   }
 
   /**
@@ -133,21 +126,12 @@ export class MouseTracker {
     this.isTracking = true
     this.lastMoveTime = 0
 
-    // Use pointer events instead of mouse events for robustness.  The
-    // site may cancel pointerdown (which suppresses mousedown) or call
-    // stopPropagation() on child elements.  Pointer events fire before
-    // mouse events and are unaffected by mouse-event suppression.
-    //
-    // { capture: true } ensures we see events during the capture phase
-    // — before the site's own bubble-phase handlers can stopPropagation.
-    //
     // { passive: true } signals we will never call preventDefault(),
     // documenting our passive-observation intent and causing a runtime
     // error if someone accidentally adds preventDefault() in the future.
-    const boardOpts: AddEventListenerOptions = { passive: true, capture: true }
-    this.boardElement.addEventListener('pointerdown', this.handlePointerDown, boardOpts)
-    this.boardElement.addEventListener('pointerup', this.handlePointerUp, boardOpts)
-    this.boardElement.addEventListener('pointermove', this.handlePointerMove, boardOpts)
+    this.boardElement.addEventListener('mousedown', this.handleMouseDown, { passive: true })
+    this.boardElement.addEventListener('mouseup', this.handleMouseUp, { passive: true })
+    this.boardElement.addEventListener('mousemove', this.handleMouseMove, { passive: true })
 
     // Keyboard-as-mouse: listen on the document since key events don't
     // fire on the board element. The cursor position at the time of the
@@ -161,11 +145,11 @@ export class MouseTracker {
     // area around the board and drag into it.  See MouseTrackerConfig.
     if (this.borderElement) {
       this.borderPressButton = -1
-      this.borderElement.addEventListener('pointerdown', this.handleBorderPointerDown, { passive: true })
-      // Listen on document for pointerup so we catch releases anywhere
+      this.borderElement.addEventListener('mousedown', this.handleBorderMouseDown, { passive: true })
+      // Listen on document for mouseup so we catch releases anywhere
       // (user might release outside the border/board entirely).
-      document.addEventListener('pointerup', this.handleBorderPointerUp, { passive: true })
-      this.boardElement.addEventListener('pointerenter', this.handleBoardPointerEnter, boardOpts)
+      document.addEventListener('mouseup', this.handleBorderMouseUp, { passive: true })
+      this.boardElement.addEventListener('mouseenter', this.handleBoardMouseEnter, { passive: true })
     }
   }
 
@@ -177,19 +161,17 @@ export class MouseTracker {
 
     this.isTracking = false
 
-    // Must pass { capture: true } to match the registration options.
-    const boardOpts: EventListenerOptions = { capture: true }
-    this.boardElement.removeEventListener('pointerdown', this.handlePointerDown, boardOpts)
-    this.boardElement.removeEventListener('pointerup', this.handlePointerUp, boardOpts)
-    this.boardElement.removeEventListener('pointermove', this.handlePointerMove, boardOpts)
+    this.boardElement.removeEventListener('mousedown', this.handleMouseDown)
+    this.boardElement.removeEventListener('mouseup', this.handleMouseUp)
+    this.boardElement.removeEventListener('mousemove', this.handleMouseMove)
 
     document.removeEventListener('keydown', this.handleKeyDown)
     document.removeEventListener('keyup', this.handleKeyUp)
 
     if (this.borderElement) {
-      this.borderElement.removeEventListener('pointerdown', this.handleBorderPointerDown)
-      document.removeEventListener('pointerup', this.handleBorderPointerUp)
-      this.boardElement.removeEventListener('pointerenter', this.handleBoardPointerEnter, boardOpts)
+      this.borderElement.removeEventListener('mousedown', this.handleBorderMouseDown)
+      document.removeEventListener('mouseup', this.handleBorderMouseUp)
+      this.boardElement.removeEventListener('mouseenter', this.handleBoardMouseEnter)
       this.borderPressButton = -1
     }
   }
@@ -219,9 +201,8 @@ export class MouseTracker {
   // Internal event handlers
   // --------------------------------------------------------------------------
 
-  private onPointerDown(domEvent: PointerEvent): void {
+  private onMouseDown(domEvent: MouseEvent): void {
     if (!this.isTracking) return
-    if (domEvent.pointerType === 'touch') return
 
     // Update position on every click too (user might click without moving)
     this.updateMousePosition(domEvent)
@@ -244,9 +225,8 @@ export class MouseTracker {
     this.emitEvent(code, domEvent)
   }
 
-  private onPointerUp(domEvent: PointerEvent): void {
+  private onMouseUp(domEvent: MouseEvent): void {
     if (!this.isTracking) return
-    if (domEvent.pointerType === 'touch') return
 
     let code: MouseEventCode
     switch (domEvent.button) {
@@ -266,9 +246,8 @@ export class MouseTracker {
     this.emitEvent(code, domEvent)
   }
 
-  private onPointerMove(domEvent: PointerEvent): void {
+  private onMouseMove(domEvent: MouseEvent): void {
     if (!this.isTracking) return
-    if (domEvent.pointerType === 'touch') return
 
     // Always update last known mouse position (used by keyboard events)
     this.updateMousePosition(domEvent)
@@ -304,10 +283,9 @@ export class MouseTracker {
    * are never seen here, which is intentional — the site's behaviour for
    * those is inconsistent and we don't attempt to handle them.
    */
-  private onBorderPointerDown(domEvent: PointerEvent): void {
+  private onBorderMouseDown(domEvent: MouseEvent): void {
     if (!this.isTracking) return
-    if (domEvent.pointerType === 'touch') return
-    // Ignore clicks that land on the board — already handled by onPointerDown
+    // Ignore clicks that land on the board — already handled by onMouseDown
     if (this.boardElement.contains(domEvent.target as Node)) return
     this.borderPressButton = domEvent.button
     this.borderPressShift = domEvent.shiftKey
@@ -317,7 +295,7 @@ export class MouseTracker {
    * Clear border-press tracking on any mouseup (listens on document so
    * we catch releases regardless of where the cursor is).
    */
-  private onBorderPointerUp(_domEvent: PointerEvent): void {
+  private onBorderMouseUp(_domEvent: MouseEvent): void {
     this.borderPressButton = -1
   }
 
@@ -329,9 +307,8 @@ export class MouseTracker {
    * where the cursor crossed the board boundary, which is the correct
    * coordinate for the synthesised press.
    */
-  private onBoardPointerEnter(domEvent: PointerEvent): void {
+  private onBoardMouseEnter(domEvent: MouseEvent): void {
     if (!this.isTracking) return
-    if (domEvent.pointerType === 'touch') return
     if (this.borderPressButton < 0) return
 
     let code: MouseEventCode
