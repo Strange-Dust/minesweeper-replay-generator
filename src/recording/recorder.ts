@@ -149,16 +149,32 @@ export class GameRecorder {
   /**
    * Mark the game as finished with a result.
    * Transitions to 'finished' state and stops all trackers.
+   *
+   * Because game-end is detected asynchronously (MutationObserver on the
+   * face element), a small number of move events may slip in after the
+   * actual final release.  We trim those and derive the total time from
+   * the last meaningful event rather than the wall clock.
    */
   finish(result: GameResult): void {
     if (this.state !== 'recording' && this.state !== 'ready') return
 
     this.result = result
-    this.gameEndTime = this.state === 'recording'
-      ? Math.round(performance.now() - this.gameStartTime)
-      : 0
-
     this.mouseTracker.stop()
+
+    if (this.state === 'recording') {
+      // Trim trailing move events that arrived after the final release.
+      // The game logically ends on the last release (lr, rr, or mr).
+      this.trimTrailingMoves()
+
+      // Derive total time from the last event's timestamp — this is more
+      // accurate than performance.now() because the MutationObserver that
+      // triggers finish() fires with a small delay.
+      const lastEvent = this.events[this.events.length - 1]
+      this.gameEndTime = lastEvent ? lastEvent.timeMs : 0
+    } else {
+      this.gameEndTime = 0
+    }
+
     this.setState('finished')
   }
 
@@ -257,6 +273,22 @@ export class GameRecorder {
   // --------------------------------------------------------------------------
   // Internal
   // --------------------------------------------------------------------------
+
+  /**
+   * Remove trailing 'mv' events that occur after the last release event.
+   * These are artefacts of the slight delay between the actual game end
+   * (final release) and the MutationObserver firing to signal finish().
+   */
+  private trimTrailingMoves(): void {
+    while (this.events.length > 0) {
+      const last = this.events[this.events.length - 1]
+      if (last.event === 'mv') {
+        this.events.pop()
+      } else {
+        break
+      }
+    }
+  }
 
   private setState(newState: RecordingState): void {
     this.state = newState
