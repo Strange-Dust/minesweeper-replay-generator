@@ -250,7 +250,13 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
       lastKnownBoardElement = null
 
       if (recorder) {
-        recorder.abort()
+        const state = recorder.getState()
+        if (state === 'recording') {
+          recorder.abort()
+          saveCompletedGame(recorder)
+        } else {
+          recorder.abort()
+        }
         recorder = null
       }
       adapter.cancelBoardReset?.()
@@ -331,6 +337,14 @@ function setupBoardChangeWatcher(adapter: SiteAdapter): void {
  * Called at session start and after each board reset.
  */
 function startNextGame(adapter: SiteAdapter): void {
+  // Guard: don't start if there's already an active recorder.
+  // Multiple code paths (URL change handler, board presence monitor, board
+  // change watcher) can all call startNextGame — this prevents races.
+  if (recorder) {
+    console.debug('[MSR] startNextGame: recorder already active, skipping')
+    return
+  }
+
   console.debug('[MSR] startNextGame called')
   // Get fresh board config (user might have changed difficulty between games)
   const boardElement = adapter.findBoardElement()
@@ -517,11 +531,95 @@ function getStatus(): StatusResponse {
 }
 
 // --------------------------------------------------------------------------
+// SPA navigation handling (URL change during active session)
+// --------------------------------------------------------------------------
+
+/**
+ * Generation counter to cancel stale retry chains from previous navigations.
+ * Each call to handleNavigationDuringSession increments this; retries check
+ * it to bail out if a newer navigation has superseded them.
+ */
+let navigationGeneration = 0
+
+/**
+ * Handle SPA navigation during an active recording session.
+ *
+ * URL changes are the most reliable signal that the SPA has navigated to a
+ * different page. The board DOM may be in flux (being destroyed / recreated),
+ * so we:
+ *   1. Abort the current game and save it if it had recording data
+ *   2. Cancel all DOM observers (they may be zombies on detached nodes)
+ *   3. Wait for the SPA to finish rendering, then re-initialize
+ *
+ * This covers game-to-game navigation (e.g. /game/123 → /game/456) which
+ * the board presence monitor can miss when #AreaBlock stays as the same DOM
+ * node with only its children/attributes changed.
+ */
+function handleNavigationDuringSession(adapter: SiteAdapter): void {
+  const generation = ++navigationGeneration
+
+  console.debug('[MSR] Handling URL change during active session')
+
+  // Abort current game if any
+  if (recorder) {
+    const state = recorder.getState()
+    if (state === 'recording') {
+      recorder.abort()
+      saveCompletedGame(recorder)
+    } else if (state === 'ready') {
+      recorder.abort()
+    }
+    recorder = null
+  }
+
+  // Cancel all DOM observers — they may be zombies after SPA navigation
+  adapter.cancelBoardReset?.()
+  adapter.cancelBoardChange?.()
+  adapter.cancelGameEnd?.()
+
+  // Mark board as unknown so the board presence monitor doesn't race us
+  lastKnownBoardElement = null
+  currentState = 'ready'
+
+  // Wait for the SPA to finish rendering the new page, then re-initialize.
+  // Use retries because SPA content loading is asynchronous.
+  let attempts = 0
+  const MAX_ATTEMPTS = 6
+  const RETRY_DELAY_MS = 250
+
+  const tryReInitialize = () => {
+    // Bail if a newer navigation has happened or session ended
+    if (generation !== navigationGeneration) return
+    if (!sessionActive || !currentAdapter) return
+
+    const boardElement = currentAdapter.findBoardElement()
+    const boardConfig = currentAdapter.getBoardConfig()
+
+    if (boardElement && boardConfig) {
+      console.debug('[MSR] Board found after URL change, re-initializing')
+      lastKnownBoardElement = boardElement
+      setupBoardChangeWatcher(currentAdapter)
+      startNextGame(currentAdapter)
+    } else if (attempts < MAX_ATTEMPTS) {
+      attempts++
+      setTimeout(tryReInitialize, RETRY_DELAY_MS)
+    } else {
+      console.debug('[MSR] No board found after URL change (navigated away from game?)')
+      lastKnownBoardElement = null
+      currentState = 'ready'
+    }
+  }
+
+  // Small initial delay for the SPA to start rendering
+  setTimeout(tryReInitialize, 150)
+}
+
+// --------------------------------------------------------------------------
 // Settings auto-detection
 // --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
-// SPA navigation monitor — settings auto-detection
+// SPA navigation monitor — settings + game URL changes
 // --------------------------------------------------------------------------
 
 /**
@@ -613,6 +711,16 @@ function startNavigationMonitor(): void {
       // The DOM elements listeners were attached to are being destroyed
       // by the SPA, making those listeners zombies.
       adapter.cancelWatchSettings?.()
+    }
+
+    // Handle any URL change during an active recording session.
+    // SPA navigation may destroy or recreate game DOM elements, making
+    // existing MutationObservers into zombies. The board presence monitor
+    // catches element replacement, but can miss cases where #AreaBlock
+    // stays as the same DOM node (same difficulty, game-to-game nav).
+    // The URL change is the most reliable signal for these transitions.
+    if (sessionActive && currentAdapter) {
+      handleNavigationDuringSession(currentAdapter)
     }
   }, 500)
 }

@@ -23,7 +23,7 @@ A successful chord (reveals new cells) can occur at any time after the flag is p
 ### Game status / Termination
 Win is the standard term.  The player has opened all of the (safe) cells on the board.
 Loss is the same as blast (very common), or boom (less common).  The player has opened a cell that contains a mine.  Opening a mine (blast) means that the game is lost.
-Unknown may also been referred to as other.  (game ends for various reasons, such as board reset, crash, etc.)
+Unknown may also been referred to as other, or as "nonstandard".  (game ends for various reasons, such as board reset, crash, etc.)
 ### Playstyle
 Flag: also referred to as "FL".  This means that at least 1 flag was used by the player.
 No-Flag: also referred to as "NF".  This means that the player has so much skill that they do not need any flags, and they are a fun, cool person with lots of friends.
