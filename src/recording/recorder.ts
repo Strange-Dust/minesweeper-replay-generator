@@ -271,9 +271,8 @@ export class GameRecorder {
         // reported duration.  Relative timing between events is
         // preserved exactly (all shifted by the same constant).
         const gameStartNow = performance.now()
-        this.mouseTracker.stop()
         this.gameStartTime = gameStartNow
-        this.mouseTracker.start(gameStartNow)
+        this.mouseTracker.setGameStartTime(gameStartNow)
 
         // Emit all buffered press events at time 0.
         // Convention: overwrite press coordinates with the release
