@@ -734,10 +734,10 @@ function startNavigationMonitor(): void {
   const adapter = detectSiteAdapter()
   if (!adapter) return
 
-  // Initialize localStorage settings bridge.
+  // Initialize localStorage settings polling.
   // Reads chording mode, keyboard-as-mouse config, etc. from the site's
-  // localStorage via <script> injection + window.postMessage(). Works on
-  // any page — no need to visit /settings.
+  // localStorage directly (content scripts share the page's origin). Works
+  // on any page — no need to visit /settings.
   settingsBridgeAdapter = adapter
   adapter.initSettingsBridge?.((settings) => {
     console.debug('[MSR] Settings from localStorage bridge:', settings)

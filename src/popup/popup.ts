@@ -581,7 +581,7 @@ function updateSettingsUI(stored: StoredSettings): void {
       : 'Manual override active'
   } else if (hasAutoDetected) {
     settingsStatusEl.className = 'settings-status detected'
-    settingsStatusText.textContent = 'Auto-detected from settings page'
+    settingsStatusText.textContent = 'Auto-detected from settings'
   } else {
     settingsStatusEl.className = 'settings-status'
     settingsStatusText.textContent = '⚠️ Not detected — visit the game\'s settings page'
@@ -616,8 +616,8 @@ function updateSettingsUI(stored: StoredSettings): void {
 
 function formatChordingMode(mode: ChordingMode): string {
   switch (mode) {
-    case 'superclick': return 'Left click (SuperClick)'
-    case 'both': return 'Left+Right click'
+    case 'superclick': return 'Left click'
+    case 'both': return 'Left+Right'
     case 'disabled': return 'Disabled'
   }
 }

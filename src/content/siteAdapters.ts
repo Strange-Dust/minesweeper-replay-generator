@@ -143,16 +143,16 @@ export interface SiteAdapter {
   cancelWatchSettings?(): void
 
   // --------------------------------------------------------------------------
-  // Settings bridge (localStorage)
+  // Settings polling (localStorage)
   // --------------------------------------------------------------------------
 
   /**
-   * Initialize a bridge to read settings from the site's localStorage.
+   * Start polling the site's localStorage for game settings.
    *
-   * Uses <script> tag injection + window.postMessage() to access the page's
-   * localStorage (which the content script's isolated world cannot read
-   * directly). Calls callback with initial values immediately and on every
-   * subsequent change.
+   * Content scripts share the page's origin, so localStorage.getItem()
+   * reads the site's own storage directly — no injection or bridging needed.
+   * Calls callback with initial values immediately and on every subsequent
+   * change detected by polling.
    *
    * Preferred over DOM-based readSettings/watchSettings because it works on
    * any page — the user doesn't need to visit the settings page.
@@ -160,7 +160,7 @@ export interface SiteAdapter {
   initSettingsBridge?(callback: (settings: GameSettings) => void): void
 
   /**
-   * Destroy the localStorage settings bridge and clean up listeners.
+   * Stop polling localStorage and clean up.
    */
   destroySettingsBridge?(): void
 }

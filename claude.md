@@ -27,7 +27,7 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 - Uses `webextension-polyfill` — always import from `src/utils/browser.ts`, never use `chrome.*` directly.
 - Message listeners return Promises (polyfill pattern) instead of using `sendResponse` callbacks.
 - Avoid Chrome-only APIs: no `offscreen`, careful with `storage.session`.
-- For page JS access, use `<script>` tag injection + `window.postMessage()` rather than `"world": "MAIN"` (Safari doesn't support it).
+- Content scripts share the page's origin, so `localStorage.getItem()` reads the site's own storage directly — no `<script>` injection or `"world": "MAIN"` needed.
 
 ### Coordinate conventions
 - Internal board positions: `(row, col)`, 0-indexed, row always comes first

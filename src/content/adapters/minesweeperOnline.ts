@@ -205,32 +205,29 @@ function parseLocalStorageSettings(data: Record<string, string | null>): GameSet
   }
 }
 
-/**
- * One-shot page-world script that reads settings keys from the site's
- * localStorage and posts them back to the content script's isolated world
- * via window.postMessage().
- *
- * This script is injected via a <script> tag, executes immediately, posts
- * the data, and the <script> element is removed. Nothing persists in the
- * page's JS environment:
- *   - No prototype patches (Storage.prototype is untouched)
- *   - No persistent event listeners
- *   - No intervals or timeouts
- *   - No global variables
- *
- * The content script re-injects this on a timer to detect changes. This
- * keeps the extension truly passive / read-only with zero page modification.
- */
-const LOCAL_STORAGE_READ_SCRIPT = `(function() {
-  var data = {};
-  var keys = ['_chording', '_use_keyboard', '_use_keyboard_left_button', '_use_keyboard_right_button'];
-  for (var i = 0; i < keys.length; i++) {
-    data[keys[i]] = localStorage.getItem(keys[i]);
-  }
-  window.postMessage({ type: 'MSR_LOCALSTORAGE_SETTINGS', data: data }, '*');
-})();`
+/** localStorage keys that hold game settings on minesweeper.online. */
+const SETTINGS_LOCALSTORAGE_KEYS = [
+  '_chording',
+  '_use_keyboard',
+  '_use_keyboard_left_button',
+  '_use_keyboard_right_button',
+] as const
 
-/** How often (ms) to re-read localStorage settings via script injection. */
+/**
+ * Read settings directly from the page's localStorage.
+ *
+ * Content scripts share the page's origin, so window.localStorage is the
+ * same storage the site's own JS uses — no injection or bridging needed.
+ */
+function readSettingsFromLocalStorage(): Record<string, string | null> {
+  const data: Record<string, string | null> = {}
+  for (const key of SETTINGS_LOCALSTORAGE_KEYS) {
+    data[key] = localStorage.getItem(key)
+  }
+  return data
+}
+
+/** How often (ms) to re-read localStorage settings. */
 const SETTINGS_POLL_INTERVAL_MS = 2000
 
 // ============================================================================
@@ -242,9 +239,8 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
   let resetObserver: MutationObserver | null = null
   let boardChangeObserver: MutationObserver | null = null
 
-  // Settings bridge state (localStorage → content script via postMessage)
-  let bridgeMessageHandler: ((event: MessageEvent) => void) | null = null
-  let bridgePollInterval: ReturnType<typeof setInterval> | null = null
+  // Settings polling state
+  let settingsPollInterval: ReturnType<typeof setInterval> | null = null
   let cachedLocalStorageSettings: GameSettings | null = null
 
   const adapter: SiteAdapter = {
@@ -457,14 +453,16 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
 
     initSettingsBridge(callback) {
       // Already running — don't double-init
-      if (bridgePollInterval) return
+      if (settingsPollInterval) return
 
-      // Listen for postMessage replies from the one-shot read script.
-      bridgeMessageHandler = (event: MessageEvent) => {
-        if (event.source !== window) return
-        if (!event.data || event.data.type !== 'MSR_LOCALSTORAGE_SETTINGS') return
-
-        const settings = parseLocalStorageSettings(event.data.data)
+      /**
+       * Read settings directly from localStorage and notify if changed.
+       * Content scripts share the page's origin, so localStorage is
+       * the same storage the site's own JS uses — zero injection needed.
+       */
+      const pollSettings = () => {
+        const data = readSettingsFromLocalStorage()
+        const settings = parseLocalStorageSettings(data)
         const changed = JSON.stringify(settings) !== JSON.stringify(cachedLocalStorageSettings)
         cachedLocalStorageSettings = settings
 
@@ -473,42 +471,19 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
           callback(settings)
         }
       }
-      window.addEventListener('message', bridgeMessageHandler)
-
-      /**
-       * Inject the one-shot read script. This creates a <script> element,
-       * appends it (which executes it synchronously), then removes it.
-       * The script reads 4 localStorage keys, posts them via postMessage,
-       * and leaves zero traces in the page environment.
-       */
-      const injectReadScript = () => {
-        try {
-          const script = document.createElement('script')
-          script.textContent = LOCAL_STORAGE_READ_SCRIPT
-          ;(document.head || document.documentElement).appendChild(script)
-          script.remove()
-        } catch {
-          // CSP or other restriction — silently fail, DOM fallback still works
-        }
-      }
 
       // Initial read
-      injectReadScript()
+      pollSettings()
 
-      // Re-read periodically to pick up changes. The injected script is
-      // stateless and ephemeral — it executes, posts data, and is gone.
-      bridgePollInterval = setInterval(injectReadScript, SETTINGS_POLL_INTERVAL_MS)
+      // Re-read periodically to pick up changes
+      settingsPollInterval = setInterval(pollSettings, SETTINGS_POLL_INTERVAL_MS)
       console.debug('[MSR] localStorage settings polling started')
     },
 
     destroySettingsBridge() {
-      if (bridgePollInterval) {
-        clearInterval(bridgePollInterval)
-        bridgePollInterval = null
-      }
-      if (bridgeMessageHandler) {
-        window.removeEventListener('message', bridgeMessageHandler)
-        bridgeMessageHandler = null
+      if (settingsPollInterval) {
+        clearInterval(settingsPollInterval)
+        settingsPollInterval = null
       }
       cachedLocalStorageSettings = null
     },
