@@ -26,7 +26,7 @@
  */
 
 import browser from '../utils/browser'
-import type { RecordingState, GameResult } from '../types/rawvf'
+import type { RecordingState, RecordingData, GameResult } from '../types/rawvf'
 import type { GameSettings } from '../types/settings'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
@@ -49,6 +49,10 @@ if ((window as any)[GUARD_KEY]) {
   throw new Error('[MSR] Content script already loaded, skipping duplicate.')
 }
 ;(window as any)[GUARD_KEY] = true
+
+// Timestamped logging helpers
+const mlog = (...args: unknown[]) => console.debug(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
+const mwarn = (...args: unknown[]) => console.warn(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
 
 // --------------------------------------------------------------------------
 // Configuration
@@ -124,7 +128,7 @@ function isContextValid(): boolean {
  * repeatedly after an extension reload/update.
  */
 function teardownOnInvalidContext(): void {
-  console.debug('[MSR] Extension context invalidated, tearing down content script')
+  mlog('Extension context invalidated, tearing down content script')
   sessionActive = false
   stopBoardPresenceMonitor()
   if (navigationMonitorInterval !== null) {
@@ -181,7 +185,7 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
   // Prevent duplicate sessions (e.g., concurrent calls from navigation monitor
   // and checkAlwaysRecord while the first handleStartSession is still running).
   if (sessionActive) {
-    console.debug('[MSR] handleStartSession: session already active, skipping')
+    mlog('handleStartSession: session already active, skipping')
     return { success: true }
   }
 
@@ -216,7 +220,7 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
 
   // Load settings (from storage or auto-detect if on settings page)
   currentSettings = await getEffectiveSettings()
-  console.debug('[MSR] Session started, board:', boardConfig.cols, 'x', boardConfig.rows, ', settings:', currentSettings)
+  mlog('Session started, board:', boardConfig.cols, 'x', boardConfig.rows, ', settings:', currentSettings)
 
   // Watch for board layout changes (difficulty switches) for the entire session.
   setupBoardChangeWatcher(adapter)
@@ -235,7 +239,7 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
  * all completed replays available for download.
  */
 function handleStopSession(): void {
-  console.debug('[MSR] Stopping session')
+  mlog('Stopping session')
   sessionActive = false
 
   // Stop monitoring
@@ -252,12 +256,15 @@ function handleStopSession(): void {
     if (state === 'recording') {
       // Game was in progress — abort and try to salvage the recording
       recorder.abort()
-      // Try to read mines once (best effort during manual stop)
-      if (currentAdapter) {
-        const mines = currentAdapter.getMinePositions?.('unknown') ?? []
-        if (mines.length > 0) recorder.setMinePositions(mines)
+      const data = recorder.getRecordingData()
+      if (data) {
+        // Try to read mines once (best effort during manual stop)
+        if (currentAdapter) {
+          const mines = currentAdapter.getMinePositions?.('unknown') ?? []
+          if (mines.length > 0) data.minePositions = mines
+        }
+        saveRecordingData(data)
       }
-      saveCompletedGame(recorder)
     } else if (state === 'ready') {
       // Game hadn't started yet — just clean up
       recorder.abort()
@@ -303,7 +310,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
       !document.contains(lastKnownBoardElement)
 
     if (elementReplaced) {
-      console.debug('[MSR] Board presence: element replaced (difficulty change or page update)')
+      mlog('Board presence: element replaced (difficulty change or page update)')
       lastKnownBoardElement = currentBoardElement
 
       // Clean up everything attached to the old DOM nodes
@@ -323,15 +330,16 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
 
     if (!hasBoard && hadBoard) {
       // Board disappeared — user navigated away from the game page.
-      console.debug('[MSR] Board presence: board disappeared (SPA navigation away from game)')
+      mlog('Board presence: board disappeared (SPA navigation away from game)')
       lastKnownBoardElement = null
 
       if (recorder) {
         const recState = recorder.getState()
-        console.debug('[MSR] Board presence: aborting recorder in state', recState)
+        mlog('Board presence: aborting recorder in state', recState)
         if (recState === 'recording') {
           recorder.abort()
-          saveCompletedGame(recorder)
+          const data = recorder.getRecordingData()
+          if (data) saveRecordingData(data)
         } else {
           recorder.abort()
         }
@@ -345,7 +353,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
 
     } else if (hasBoard && !hadBoard) {
       // Board appeared — user navigated back to the game page.
-      console.debug('[MSR] Board presence: board appeared (SPA navigation to game)')
+      mlog('Board presence: board appeared (SPA navigation to game)')
       lastKnownBoardElement = currentBoardElement
 
       setupBoardChangeWatcher(adapter)
@@ -385,7 +393,7 @@ function isBoardUsable(adapter: SiteAdapter): boolean {
 function setupBoardChangeWatcher(adapter: SiteAdapter): void {
   adapter.onBoardChange?.(() => {
     if (!sessionActive) return
-    console.debug('[MSR] onBoardChange fired (childList mutation on board)')
+    mlog('onBoardChange fired (childList mutation on board)')
 
     // Board layout changed (user switched difficulty mid-game or between games).
     // Abort any in-progress game and start fresh with the new board config.
@@ -411,6 +419,70 @@ function setupBoardChangeWatcher(adapter: SiteAdapter): void {
 // --------------------------------------------------------------------------
 
 /**
+ * Set up game-end detection for the current recorder.
+ *
+ * When the game ends (face changes to win/lose), this handler:
+ *   1. Calls finishAndReset — snapshots the finished game, resets recorder
+ *      to 'ready', mouse tracker stays alive (zero gap)
+ *   2. Re-registers itself immediately for the next game's end
+ *   3. Defers all heavy work (mine reading, RAWVF, storage) to setTimeout(0)
+ *
+ * This is extracted as a standalone function so it can be called from both
+ * startNextGame and the navigation handler's fast path.
+ */
+function setupGameEndHandler(adapter: SiteAdapter): void {
+  adapter.onGameEnd?.((result) => {
+    if (recorder && recorder.getState() === 'recording') {
+      mlog('Game end detected:', result)
+
+      const effectivePlayerName = playerName || adapter.getPlayerName?.() || undefined
+      const finishedData = recorder.finishAndReset(result, {
+        program: adapter.getProgramName(),
+        version: adapter.getVersion?.(),
+        player: effectivePlayerName,
+        timestamp: new Date().toISOString(),
+        questionMarks: false,
+        chordingMode: currentSettings?.chording,
+      })
+
+      currentState = 'ready'
+
+      // Re-register game-end detection for the next game immediately.
+      // The face observer was disconnected before this callback ran, so
+      // without this the next game's end would never be detected.
+      setupGameEndHandler(adapter)
+
+      // The recorder is frozen (finishAndReset sets frozen=true) to prevent
+      // phantom games from clicks on the end-game board. Watch for the face
+      // to return to neutral (board reset) and unfreeze at that point.
+      adapter.cancelBoardReset?.()
+      adapter.onBoardReset?.(() => {
+        mlog('Board reset detected → unfreezing recorder')
+        if (recorder) {
+          recorder.unfreeze()
+        }
+      })
+
+      // Defer all heavy work (mine reading, RAWVF generation, storage).
+      // The recorder is already listening for the next game's first click.
+      if (finishedData) {
+        setTimeout(() => {
+          readMinesAndSave(adapter, finishedData, result, 0)
+        }, 0)
+      }
+    } else {
+      // Belt-and-suspenders: the face observer fired but the recorder
+      // wasn't recording (e.g., face class flicker the seenNeutral guard
+      // didn't catch). The observer already disconnected itself, so
+      // re-register to keep watching for the real game end.
+      mwarn('Game end callback fired but recorder state is',
+        recorder?.getState() ?? 'null', '— re-registering observer')
+      setupGameEndHandler(adapter)
+    }
+  })
+}
+
+/**
  * Set up and start a new game recorder within the active session.
  * Called at session start and after each board reset.
  */
@@ -419,22 +491,22 @@ function startNextGame(adapter: SiteAdapter): void {
   // Multiple code paths (URL change handler, board presence monitor, board
   // change watcher) can all call startNextGame — this prevents races.
   if (recorder) {
-    console.debug('[MSR] startNextGame: recorder already active, skipping')
+    mlog('startNextGame: recorder already active, skipping')
     return
   }
 
-  console.debug('[MSR] startNextGame called')
+  mlog('startNextGame called')
   // Get fresh board config (user might have changed difficulty between games)
   const boardElement = adapter.findBoardElement()
   const boardConfig = adapter.getBoardConfig()
   if (!boardElement || !boardConfig) {
-    console.warn('[MSR] startNextGame: board not found, waiting for presence monitor')
+    mwarn('startNextGame: board not found, waiting for presence monitor')
     // Board not found — don't kill the session.
     // The board presence monitor will detect when the board returns.
     currentState = 'ready'
     return
   }
-  console.debug('[MSR] startNextGame: board', boardConfig.cols, 'x', boardConfig.rows, ', squareSize', boardConfig.squareSize)
+  mlog('startNextGame: board', boardConfig.cols, 'x', boardConfig.rows, ', squareSize', boardConfig.squareSize)
 
   // Create a new recorder for this game
   // Player name priority: explicit override from popup > auto-detected from site
@@ -456,7 +528,7 @@ function startNextGame(adapter: SiteAdapter): void {
       borderElement: adapter.findBorderElement?.() ?? undefined,
     },
     onStateChange: (state) => {
-      console.debug('[MSR] Recorder state changed:', state)
+      mlog('Recorder state changed:', state)
       // In multi-game mode, don't expose individual game 'finished' to the popup.
       // The session manages the transition from game-finished → ready-for-next.
       if (sessionActive && state === 'finished') return
@@ -464,35 +536,14 @@ function startNextGame(adapter: SiteAdapter): void {
     },
   })
 
-  // Set up game end detection
-  adapter.onGameEnd?.((result) => {
-    if (recorder && recorder.getState() === 'recording') {
-      console.debug('[MSR] Game end detected:', result)
-      recorder.finish(result)
-      const finishedRecorder = recorder
-      recorder = null  // Detach from global immediately
-
-      // Read mines and save. Uses immediate read + retries in case the
-      // site animates mine reveals after the face/status indicator changes.
-      readMinesAndFinalize(adapter, finishedRecorder, result, 0)
-
-      // Create the next recorder immediately so it's already listening
-      // when the user clicks to start a new game. Without this, the
-      // first click is lost: on minesweeper.online, clicking a cell after
-      // game-end resets the face and starts a new game in one gesture.
-      // If we waited for onBoardReset (which defers via rAF), the
-      // mousedown/mouseup of that first click would fire before the
-      // recorder exists.
-      if (sessionActive) {
-        startNextGame(adapter)
-      }
-    }
-  })
+  // Set up game end detection — uses finishAndReset for zero-gap transitions
+  // and re-registers itself for the next game automatically.
+  setupGameEndHandler(adapter)
 
   // Start the recorder (enters 'ready' state, waiting for first click)
   recorder.start()
   currentState = 'ready'
-  console.debug('[MSR] Recorder started, state = ready, waiting for first click')
+  mlog('Recorder started, state = ready, waiting for first click')
 }
 
 // --------------------------------------------------------------------------
@@ -509,35 +560,35 @@ const MINE_READ_DELAY_MS = 150
  * animate mine reveals after the face/status indicator changes. This
  * function retries a few times with short delays before giving up.
  *
- * Uses a saved recorder reference (not the global) so that a new game
- * starting during retries doesn't corrupt the old game's data.
+ * Operates on a detached RecordingData snapshot so it cannot interfere
+ * with the already-running next game recorder.
  */
-function readMinesAndFinalize(
+function readMinesAndSave(
   adapter: SiteAdapter,
-  gameRecorder: GameRecorder,
+  data: RecordingData,
   result: GameResult,
   attempt: number,
 ): void {
   const mines = adapter.getMinePositions?.(result) ?? []
 
   if (mines.length > 0) {
-    console.debug(`[MSR] Found ${mines.length} mines (attempt ${attempt + 1})`)
-    gameRecorder.setMinePositions(mines)
-    saveCompletedGame(gameRecorder)
+    mlog(`Found ${mines.length} mines (attempt ${attempt + 1})`)
+    data.minePositions = mines
+    saveRecordingData(data)
     return
   }
 
   if (attempt < MINE_READ_MAX_RETRIES) {
     setTimeout(
-      () => readMinesAndFinalize(adapter, gameRecorder, result, attempt + 1),
+      () => readMinesAndSave(adapter, data, result, attempt + 1),
       MINE_READ_DELAY_MS,
     )
     return
   }
 
   // All retries exhausted — save without mine data.
-  console.warn(`[MSR] Could not read mine positions after ${attempt + 1} attempts`)
-  saveCompletedGame(gameRecorder)
+  mwarn(`Could not read mine positions after ${attempt + 1} attempts`)
+  saveRecordingData(data)
 }
 
 // --------------------------------------------------------------------------
@@ -545,14 +596,11 @@ function readMinesAndFinalize(
 // --------------------------------------------------------------------------
 
 /**
- * Generate RAWVF from a finished recorder and persist to storage.
+ * Generate RAWVF from recording data and persist to storage.
  * Respects the "Only save wins" preference — losses are silently skipped
  * when enabled, but the session game count still increments.
  */
-async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
-  const data = gameRecorder.getRecordingData()
-  if (!data) return
-
+async function saveRecordingData(data: RecordingData): Promise<void> {
   // Check "Only save wins" preference
   let prefs: Record<string, unknown>
   try {
@@ -563,7 +611,7 @@ async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
     return
   }
   if (prefs.winsOnly === true && data.result !== 'won') {
-    console.debug(`[MSR] Skipping save (result=${data.result}, winsOnly=true)`)
+    mlog(`Skipping save (result=${data.result}, winsOnly=true)`)
     sessionGameCount++
     return
   }
@@ -575,7 +623,7 @@ async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
   const filename = generateFilename(data)
   sessionGameCount++
 
-  console.debug(`[MSR] Saved: ${filename} (${data.board.mines} mines, ${data.result})`)
+  mlog(`Saved: ${filename} (${data.board.mines} mines, ${data.result})`)
 
   // Persist to storage. Fire-and-forget: the popup polls and will pick it up.
   saveGame({
@@ -586,7 +634,7 @@ async function saveCompletedGame(gameRecorder: GameRecorder): Promise<void> {
     mines: data.board.mines,
     result: data.result,
     timeMs: data.totalTimeMs,
-  }, rawvf).catch(err => console.error('[MSR] Failed to save replay:', err))
+  }, rawvf).catch(err => console.error(`[MSR t=${performance.now().toFixed(1)}] Failed to save replay:`, err))
 }
 
 /**
@@ -625,30 +673,41 @@ let navigationGeneration = 0
 /**
  * Handle SPA navigation during an active recording session.
  *
- * URL changes are the most reliable signal that the SPA has navigated to a
- * different page. The board DOM may be in flux (being destroyed / recreated),
- * so we:
- *   1. Abort the current game and save it if it had recording data
- *   2. Cancel all DOM observers (they may be zombies on detached nodes)
- *   3. Wait for the SPA to finish rendering, then re-initialize
+ * The face observer + finishAndReset + freeze/unfreeze mechanism handles
+ * game-to-game transitions entirely. The navigation handler only needs to
+ * intervene when the board DOM element is actually destroyed or replaced
+ * (navigating away from the game page, or difficulty change that recreates
+ * the board element).
  *
- * This covers game-to-game navigation (e.g. /game/123 → /game/456) which
- * the board presence monitor can miss when #AreaBlock stays as the same DOM
- * node with only its children/attributes changed.
+ * When the board is the SAME DOM node, we no-op — the URL change is just
+ * the SPA updating the address bar to reflect a game that's already in
+ * progress or about to start.
  */
 function handleNavigationDuringSession(adapter: SiteAdapter): void {
   const generation = ++navigationGeneration
 
-  console.debug('[MSR] Navigation handler: URL changed during active session, generation =', generation)
+  mlog('Navigation handler: URL changed during active session, generation =', generation)
 
-  // Abort current game if any
+  const boardElement = adapter.findBoardElement()
+
+  // --- Fast path: board is the same DOM node → no-op ---
+  // The face observer, finishAndReset, freeze/unfreeze, and onBoardReset
+  // handle the entire game lifecycle. The URL change is the SPA catching up.
+  if (boardElement && boardElement === lastKnownBoardElement && document.contains(boardElement)) {
+    mlog('Navigation handler: same board element → no-op (lifecycle handled by face observer)')
+    return
+  }
+
+  // --- Board element changed or disappeared → full teardown and re-init ---
+  mlog('Navigation handler: board element changed or gone → full re-init')
+
   if (recorder) {
     const recState = recorder.getState()
-    console.debug('[MSR] Navigation handler: aborting recorder in state', recState)
     if (recState === 'recording') {
       recorder.abort()
-      saveCompletedGame(recorder)
-    } else if (recState === 'ready') {
+      const data = recorder.getRecordingData()
+      if (data) saveRecordingData(data)
+    } else {
       recorder.abort()
     }
     recorder = null
@@ -678,17 +737,17 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
     const boardConfig = currentAdapter.getBoardConfig()
 
     if (boardElement && boardConfig) {
-      console.debug('[MSR] Navigation handler: board found after URL change, re-initializing',
+      mlog('Navigation handler: board found after URL change, re-initializing',
         boardConfig.cols, 'x', boardConfig.rows)
       lastKnownBoardElement = boardElement
       setupBoardChangeWatcher(currentAdapter)
       startNextGame(currentAdapter)
     } else if (attempts < MAX_ATTEMPTS) {
       attempts++
-      console.debug('[MSR] Navigation handler: board not found yet, retry', attempts, '/', MAX_ATTEMPTS)
+      mlog('Navigation handler: board not found yet, retry', attempts, '/', MAX_ATTEMPTS)
       setTimeout(tryReInitialize, RETRY_DELAY_MS)
     } else {
-      console.debug('[MSR] Navigation handler: no board found after', MAX_ATTEMPTS, 'retries (navigated away from game?)')
+      mlog('Navigation handler: no board found after', MAX_ATTEMPTS, 'retries (navigated away from game?)')
       lastKnownBoardElement = null
       currentState = 'ready'
     }
@@ -740,7 +799,7 @@ function startNavigationMonitor(): void {
   // on any page — no need to visit /settings.
   settingsBridgeAdapter = adapter
   adapter.initSettingsBridge?.((settings) => {
-    console.debug('[MSR] Settings from localStorage bridge:', settings)
+    mlog('Settings from localStorage bridge:', settings)
     persistAutoDetectedSettings(settings)
   })
 
@@ -753,7 +812,7 @@ function startNavigationMonitor(): void {
 
     const previousPath = lastPathname
     lastPathname = currentPath
-    console.debug(`[MSR] SPA navigation: ${previousPath} → ${currentPath}`)
+    mlog(`SPA navigation: ${previousPath} → ${currentPath}`)
 
     // Handle any URL change during an active recording session.
     // SPA navigation may destroy or recreate game DOM elements, making
@@ -804,10 +863,10 @@ async function checkAlwaysRecord(): Promise<void> {
     playerName = (typeof prefs.playerName === 'string' && prefs.playerName.trim())
       ? prefs.playerName.trim()
       : undefined
-    console.debug('[MSR] Always-record enabled, auto-starting session')
+    mlog('Always-record enabled, auto-starting session')
     const result = await handleStartSession()
     if (!result.success) {
-      console.debug('[MSR] Always-record: session start failed:', result.error,
+      mlog('Always-record: session start failed:', result.error,
         '— will retry on next SPA navigation')
     }
   }
@@ -828,7 +887,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   if (changes.alwaysRecord?.newValue === true && !sessionActive) {
-    console.debug('[MSR] Always-record toggled on, auto-starting session')
+    mlog('Always-record toggled on, auto-starting session')
     checkAlwaysRecord()
   }
 })

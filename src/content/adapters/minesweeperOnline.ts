@@ -34,6 +34,10 @@ import type { BoardConfig, BoardPosition, GameResult } from '../../types/rawvf'
 import type { GameSettings, ChordingMode } from '../../types/settings'
 import { DEFAULT_SETTINGS } from '../../types/settings'
 
+// Timestamped logging helpers
+const mlog = (...args: unknown[]) => console.debug(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
+const mwarn = (...args: unknown[]) => console.warn(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
+
 /** Known cell state suffixes — used to validate class names extracted from cell elements. */
 const VALID_CELL_SUFFIXES = new Set([
   'closed', 'flag', 'pressed',
@@ -292,9 +296,9 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // Guard: only read mine positions after a game has ended.
       // During gameplay, cell classes don't reliably indicate mine locations.
       const faceState = detectFaceState()
-      console.debug('[MSR] getMinePositions called: result =', result, ', faceState =', faceState)
+      mlog('getMinePositions called: result =', result, ', faceState =', faceState)
       if (!result || faceState === null) {
-        console.debug('[MSR] getMinePositions: guard failed, returning []')
+        mlog('getMinePositions: guard failed, returning []')
         return []
       }
 
@@ -329,27 +333,51 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // Watch the face element for class changes that indicate win/loss
       const face = document.querySelector('#top_area_face')
       if (!face) {
-        console.warn('[MSR] onGameEnd: #top_area_face not found in DOM')
+        mwarn('onGameEnd: #top_area_face not found in DOM')
         return
       }
 
-      console.debug('[MSR] onGameEnd: setting up face observer on', face.className)
+      mlog('onGameEnd: setting up face observer on', face.className)
 
       // Clean up any previous observer
       if (faceObserver) {
         faceObserver.disconnect()
       }
 
+      // Track whether the face has been neutral since this observer was
+      // created. When re-registered right after a game end, the face still
+      // shows win/lose. Without this guard, the face → face+pressed class
+      // change (player clicking to restart) fires the observer with the
+      // SAME win/lose result, consuming the observer before the real next
+      // game end ever happens.
+      let seenNeutral = !detectFaceState()
+
       faceObserver = new MutationObserver(() => {
-        console.debug('[MSR] Face class changed:', face.className)
+        mlog('Face class changed:', face.className)
         const result = detectFaceState()
-        console.debug('[MSR] detectFaceState() =', result)
-        if (result) {
-          callback(result)
-          // Stop observing after game ends
-          faceObserver?.disconnect()
-          faceObserver = null
+        mlog('detectFaceState() =', result)
+
+        if (!result) {
+          // Face is neutral (or pressed during gameplay) — not a game end,
+          // but now we know the board has reset and the next win/lose is real.
+          seenNeutral = true
+          return
         }
+
+        if (!seenNeutral) {
+          // Face still shows the SAME win/lose from before we were set up.
+          // This is a class flicker (e.g. win → win+pressed), not a new game end.
+          mlog('onGameEnd: ignoring face change (seenNeutral=false, same end-state)')
+          return
+        }
+
+        // Real game end: face transitioned to win/lose AFTER being neutral.
+        // Disconnect BEFORE calling the callback. The callback may call
+        // startNextGame → onGameEnd, which creates a new faceObserver.
+        // If we disconnect after the callback, we'd kill the new observer.
+        faceObserver?.disconnect()
+        faceObserver = null
+        callback(result)
       })
 
       faceObserver.observe(face, {
@@ -369,14 +397,14 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // Watch the face element for the win/lose class to DISAPPEAR,
       // which indicates the player has started a new game.
       // After a game ends, the face shows win/lose. When the user clicks
-      // the face or a cell to start a new game, the face returns to neutral.
+      // the face to start a new game, the face returns to neutral.
       const face = document.querySelector('#top_area_face')
       if (!face) {
-        console.warn('[MSR] onBoardReset: #top_area_face not found')
+        mwarn('onBoardReset: #top_area_face not found')
         return
       }
 
-      console.debug('[MSR] onBoardReset: watching for face to return to neutral')
+      mlog('onBoardReset: watching for face to return to neutral')
 
       if (resetObserver) {
         resetObserver.disconnect()
@@ -384,15 +412,15 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
 
       resetObserver = new MutationObserver(() => {
         const state = detectFaceState()
-        console.debug('[MSR] onBoardReset: face changed, detectFaceState() =', state)
+        mlog('onBoardReset: face changed, detectFaceState() =', state)
         if (!state) {
-          // Face no longer shows win/lose — board is resetting
-          console.debug('[MSR] Board reset detected')
+          // Face no longer shows win/lose — board is resetting.
+          // Call the callback immediately (no requestAnimationFrame delay)
+          // so the recorder can unfreeze and capture the first click.
+          mlog('Board reset detected')
           resetObserver?.disconnect()
           resetObserver = null
-          // Read-only: wait one frame for cells to reset in the DOM
-          // before the callback reads fresh board config. No DOM writes.
-          requestAnimationFrame(() => callback())
+          callback()
         }
       })
 
@@ -467,7 +495,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
         cachedLocalStorageSettings = settings
 
         if (changed) {
-          console.debug('[MSR] Settings from localStorage:', settings)
+          mlog('Settings from localStorage:', settings)
           callback(settings)
         }
       }
@@ -477,7 +505,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
 
       // Re-read periodically to pick up changes
       settingsPollInterval = setInterval(pollSettings, SETTINGS_POLL_INTERVAL_MS)
-      console.debug('[MSR] localStorage settings polling started')
+      mlog('localStorage settings polling started')
     },
 
     destroySettingsBridge() {

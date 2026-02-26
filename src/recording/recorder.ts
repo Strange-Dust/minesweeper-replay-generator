@@ -76,6 +76,16 @@ export class GameRecorder {
    *  immediately after the first click rebase. */
   private lastEmittedX: number = -1
   private lastEmittedY: number = -1
+  /**
+   * When true, the recorder buffers mouse events instead of processing them.
+   * Used after finishAndReset() to prevent a phantom game from starting
+   * while the board still shows the end-game state (mines revealed, face
+   * showing win/lose). Call unfreeze() when the board actually resets —
+   * buffered events are replayed so the first click is captured.
+   */
+  private frozen: boolean = false
+  /** Events captured while frozen — replayed on unfreeze(). */
+  private frozenBuffer: RecordedMouseEvent[] = []
 
   constructor(config: RecorderConfig) {
     this.board = config.board
@@ -144,6 +154,8 @@ export class GameRecorder {
     this.result = 'unknown'
     this.lastEmittedX = -1
     this.lastEmittedY = -1
+    this.frozen = false
+    this.frozenBuffer = []
 
     this.setState('ready')
 
@@ -185,10 +197,121 @@ export class GameRecorder {
   }
 
   /**
+   * Finish the current game and immediately reset to 'ready' for the next
+   * game — **without ever stopping the mouse tracker**.
+   *
+   * This is the fast path for multi-game sessions. The mouse tracker's
+   * event listeners stay attached to the board element continuously, so
+   * there is zero gap where a fast player's click could be lost.
+   *
+   * Returns the completed game's RecordingData (same as getRecordingData()
+   * would return after finish()), or null if the recorder wasn't recording.
+   */
+  finishAndReset(result: GameResult, newMetadata?: ReplayMetadata): RecordingData | null {
+    if (this.state !== 'recording' && this.state !== 'ready') return null
+
+    // --- Snapshot the finished game's data ---
+    this.result = result
+
+    let data: RecordingData | null = null
+    if (this.state === 'recording') {
+      this.trimTrailingMoves()
+      const lastEvent = this.events[this.events.length - 1]
+      const endTime = lastEvent ? lastEvent.timeMs : 0
+
+      data = {
+        board: { ...this.board },
+        minePositions: [...this.minePositions],
+        events: [...this.events],
+        metadata: { ...this.metadata },
+        result: this.result,
+        totalTimeMs: endTime,
+      }
+    }
+
+    // --- Reset internal state for next game (mouse tracker stays alive) ---
+    this.events = []
+    this.pendingEvents = []
+    this.waitingForRelease = false
+    this.gameStartTime = 0
+    this.gameEndTime = 0
+    this.result = 'unknown'
+    this.minePositions = []
+    this.lastEmittedX = -1
+    this.lastEmittedY = -1
+
+    // Update metadata for the next game if provided
+    if (newMetadata) {
+      this.metadata = newMetadata
+    }
+
+    // Go straight to 'ready' — mouse tracker is still listening,
+    // so the next click will be captured immediately.
+    // Start frozen: the board still shows the end-game state, so clicks
+    // should not start a new recording until the board actually resets.
+    // Events during freeze are buffered and replayed on unfreeze().
+    this.frozen = true
+    this.frozenBuffer = []
+    this.setState('ready')
+
+    return data
+  }
+
+  /**
+   * Prevent the recorder from starting a new game while in 'ready' state.
+   * Mouse events are buffered and replayed on unfreeze().
+   */
+  freeze(): void {
+    this.frozen = true
+    this.frozenBuffer = []
+  }
+
+  /**
+   * Allow the recorder to start a new game.
+   *
+   * Replays buffered events from the freeze period through the normal
+   * event handler. On minesweeper.online, the click that resets the board
+   * also starts the new game — the mousedown fires before the face class
+   * changes, so it lands in the freeze buffer. By replaying it here, the
+   * first click of the new game is captured with zero loss.
+   *
+   * Only replays from the LAST press event onward — earlier events were
+   * clicks on the end-game board that have no gameplay meaning.
+   */
+  unfreeze(): void {
+    if (!this.frozen) return
+    this.frozen = false
+
+    // Find the last press event in the buffer — this is the click that
+    // triggered the board reset (and doubles as the first game click).
+    let lastPressIndex = -1
+    for (let i = this.frozenBuffer.length - 1; i >= 0; i--) {
+      if (isPressEvent(this.frozenBuffer[i].event)) {
+        lastPressIndex = i
+        break
+      }
+    }
+
+    if (lastPressIndex >= 0) {
+      // Replay from the last press onward. Events go through the normal
+      // ready-state logic: press → pendingEvents, release → game starts.
+      const toReplay = this.frozenBuffer.slice(lastPressIndex)
+      this.frozenBuffer = []
+      for (const event of toReplay) {
+        this.onMouseEvent(event)
+      }
+    } else {
+      this.frozenBuffer = []
+    }
+  }
+
+  /**
    * Stop recording without a result (manual stop / abort).
    */
   abort(): void {
     this.mouseTracker.stop()
+    this.frozen = false
+    this.frozenBuffer = []
 
     if (this.state === 'recording') {
       this.gameEndTime = Math.round(performance.now() - this.gameStartTime)
@@ -211,6 +334,8 @@ export class GameRecorder {
     this.result = 'unknown'
     this.lastEmittedX = -1
     this.lastEmittedY = -1
+    this.frozen = false
+    this.frozenBuffer = []
     this.setState('idle')
   }
 
@@ -237,6 +362,13 @@ export class GameRecorder {
 
   private onMouseEvent(event: RecordedMouseEvent): void {
     if (this.state === 'ready') {
+      // Frozen: board still showing end-game state — buffer events for
+      // replay on unfreeze (captures the click that resets the board).
+      if (this.frozen) {
+        this.frozenBuffer.push(event)
+        return
+      }
+
       // Minesweeper convention: the game timer starts on the first mouse
       // *release* (e.g. 'lr'), not the press. We buffer press events while
       // waiting for the release, then emit both press + release at time 0.
