@@ -12,6 +12,7 @@
  */
 
 import browser from '../utils/browser'
+import { mlog, mwarn } from '../utils/log'
 
 // --------------------------------------------------------------------------
 // Extension lifecycle
@@ -19,9 +20,9 @@ import browser from '../utils/browser'
 
 browser.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('Minesweeper Replay Generator installed.')
+    mlog('Minesweeper Replay Generator installed.')
   } else if (details.reason === 'update') {
-    console.log(`Minesweeper Replay Generator updated to v${browser.runtime.getManifest().version}`)
+    mlog(`Minesweeper Replay Generator updated to v${browser.runtime.getManifest().version}`)
   }
 
   // Inject the content script into any minesweeper.online tabs that are
@@ -49,14 +50,14 @@ async function injectIntoExistingTabs(): Promise<void> {
           target: { tabId: tab.id },
           files: ['content/index.js'],
         })
-        console.log(`[MSR] Injected content script into tab ${tab.id}: ${tab.url}`)
+        mlog(`Injected content script into tab ${tab.id}: ${tab.url}`)
       } catch (err) {
         // Expected for tabs that are frozen, discarded, or already have it
-        console.debug(`[MSR] Could not inject into tab ${tab.id}:`, err)
+        mwarn(`Could not inject into tab ${tab.id}:`, err)
       }
     }
   } catch (err) {
-    console.debug('[MSR] Could not query tabs:', err)
+    mwarn('Could not query tabs:', err)
   }
 }
 

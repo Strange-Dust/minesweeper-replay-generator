@@ -10,6 +10,7 @@
  */
 
 import browser from '../utils/browser'
+import { merr } from '../utils/log'
 import type { StatusResponse } from '../types/messages'
 import type { GameSettings, ChordingMode } from '../types/settings'
 import { DEFAULT_SETTINGS } from '../types/settings'
@@ -170,7 +171,7 @@ async function startRecording(): Promise<void> {
   const playerName = playerNameInput.value.trim() || undefined
   const response = await sendToContentScript({ type: 'START_RECORDING', playerName }) as { success?: boolean; error?: string } | null
   if (response?.error) {
-    console.error('Start failed:', response.error)
+    merr('Start failed:', response.error)
   }
   lastSessionGameCount = 0
   startPolling()

@@ -100,7 +100,7 @@ export class MouseTracker {
     this.boardElement = config.boardElement
     this.squareSize = config.squareSize
     this.onEvent = config.onEvent
-    this.moveThrottleMs = config.moveThrottleMs ?? 0  // TODO: test in case 0ms is too low and causes performance issues
+    this.moveThrottleMs = config.moveThrottleMs ?? 0
     this.keyboardMouse = config.keyboardMouse
     this.borderElement = config.borderElement
 

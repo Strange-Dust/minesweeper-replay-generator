@@ -51,7 +51,7 @@ export interface RecorderConfig {
  *   const recorder = new GameRecorder(config)
  *   recorder.start()          // Begin listening (transitions to 'ready')
  *   // ... game plays ...     // Automatically transitions to 'recording' on first click
- *   // ... game ends ...      // Call recorder.finish('won') or recorder.finish('lost')
+ *   // ... game ends ...      // Call recorder.finishAndReset('won') or recorder.abort()
  *   const data = recorder.getRecordingData()
  *   const rawvf = generateRawvf(data)
  */
@@ -132,14 +132,6 @@ export class GameRecorder {
   }
 
   /**
-   * Set mine positions (if not known at construction time).
-   * Mine positions are often only revealed when the game ends.
-   */
-  setMinePositions(positions: BoardPosition[]): void {
-    this.minePositions = positions
-  }
-
-  /**
    * Start listening for events. Transitions to 'ready' state.
    * The recorder will automatically transition to 'recording' on the first mouse click.
    */
@@ -162,38 +154,6 @@ export class GameRecorder {
     // Start the mouse tracker — will begin collecting events,
     // but we don't set gameStartTime until the first release
     this.mouseTracker.start(performance.now()) // temporary start time
-  }
-
-  /**
-   * Mark the game as finished with a result.
-   * Transitions to 'finished' state and stops all trackers.
-   *
-   * Because game-end is detected asynchronously (MutationObserver on the
-   * face element), a small number of move events may slip in after the
-   * actual final release.  We trim those and derive the total time from
-   * the last meaningful event rather than the wall clock.
-   */
-  finish(result: GameResult): void {
-    if (this.state !== 'recording' && this.state !== 'ready') return
-
-    this.result = result
-    this.mouseTracker.stop()
-
-    if (this.state === 'recording') {
-      // Trim trailing move events that arrived after the final release.
-      // The game logically ends on the last release (lr, rr, or mr).
-      this.trimTrailingMoves()
-
-      // Derive total time from the last event's timestamp — this is more
-      // accurate than performance.now() because the MutationObserver that
-      // triggers finish() fires with a small delay.
-      const lastEvent = this.events[this.events.length - 1]
-      this.gameEndTime = lastEvent ? lastEvent.timeMs : 0
-    } else {
-      this.gameEndTime = 0
-    }
-
-    this.setState('finished')
   }
 
   /**
@@ -319,24 +279,6 @@ export class GameRecorder {
 
     this.result = 'unknown'
     this.setState('finished')
-  }
-
-  /**
-   * Reset the recorder to idle state for a new game.
-   */
-  reset(): void {
-    this.mouseTracker.stop()
-    this.events = []
-    this.pendingEvents = []
-    this.waitingForRelease = false
-    this.gameStartTime = 0
-    this.gameEndTime = 0
-    this.result = 'unknown'
-    this.lastEmittedX = -1
-    this.lastEmittedY = -1
-    this.frozen = false
-    this.frozenBuffer = []
-    this.setState('idle')
   }
 
   /**

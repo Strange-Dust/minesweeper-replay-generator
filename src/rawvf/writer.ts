@@ -33,14 +33,6 @@ export function generateRawvf(recording: RecordingData): string {
 }
 
 /**
- * Generate a RAWVF file and return it as a downloadable Blob.
- */
-export function generateRawvfBlob(recording: RecordingData): Blob {
-  const content = generateRawvf(recording)
-  return new Blob([content], { type: 'text/plain' })
-}
-
-/**
  * Generate a suggested filename for the RAWVF export.
  * Format / Naming Convention: "replay_YYYYMMDD_HHMMSS.rawvf"
  */

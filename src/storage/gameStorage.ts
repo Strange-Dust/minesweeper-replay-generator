@@ -9,8 +9,8 @@
  *   - "replayMeta": StoredGameMeta[]     — compact array for the game list UI
  *   - "replay_<id>": string              — individual RAWVF content per game
  *
- * Budget: 5 MB for replay data. This fits roughly 100–250 expert-level replays
- * or thousands of beginner games — enough for weeks of casual play without
+ * Budget: 50 MB for replay data. This fits roughly 1,000–2,500 expert-level replays
+ * or tens of thousands of beginner games — enough for months of play without
  * abusing the user's storage. When the budget is exceeded, the oldest replays
  * are evicted automatically (FIFO).
  */

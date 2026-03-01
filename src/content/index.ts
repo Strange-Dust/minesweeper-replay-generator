@@ -26,7 +26,7 @@
  */
 
 import browser from '../utils/browser'
-import type { RecordingState, RecordingData, GameResult } from '../types/rawvf'
+import type { RecordingState, RecordingData, GameResult, ReplayMetadata } from '../types/rawvf'
 import type { GameSettings } from '../types/settings'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
@@ -176,7 +176,7 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
 // --------------------------------------------------------------------------
 
 /**
- * Start a new multi-game recording session.
+ * Start a new recording session.
  * Detects the site adapter, validates the board, and begins recording.
  */
 async function handleStartSession(): Promise<{ success: boolean; error?: string }> {
@@ -367,14 +367,6 @@ function stopBoardPresenceMonitor(): void {
   }
 }
 
-/**
- * Check if the board is present and usable (exists and has cells).
- * A board element might exist but be empty during page transitions.
- */
-function isBoardUsable(adapter: SiteAdapter): boolean {
-  return !!adapter.findBoardElement() && !!adapter.getBoardConfig()
-}
-
 // --------------------------------------------------------------------------
 // Board change watcher (difficulty switches)
 // --------------------------------------------------------------------------
@@ -433,15 +425,7 @@ function setupGameEndHandler(adapter: SiteAdapter): void {
     if (recorder && recorder.getState() === 'recording') {
       mlog('Game end detected:', result)
 
-      const effectivePlayerName = playerName || adapter.getPlayerName?.() || undefined
-      const finishedData = recorder.finishAndReset(result, {
-        program: adapter.getProgramName(),
-        version: adapter.getVersion?.(),
-        player: effectivePlayerName,
-        timestamp: new Date().toISOString(),
-        questionMarks: false,
-        chordingMode: currentSettings?.chording,
-      })
+      const finishedData = recorder.finishAndReset(result, buildReplayMetadata())
 
       currentState = 'ready'
 
@@ -507,18 +491,9 @@ function startNextGame(adapter: SiteAdapter): void {
   mlog('startNextGame: board', boardConfig.cols, 'x', boardConfig.rows, ', squareSize', boardConfig.squareSize)
 
   // Create a new recorder for this game
-  // Player name priority: explicit override from popup > auto-detected from site
-  const effectivePlayerName = playerName || adapter.getPlayerName?.() || undefined
   recorder = new GameRecorder({
     board: boardConfig,
-    metadata: {
-      program: adapter.getProgramName(),
-      version: adapter.getVersion?.(),
-      player: effectivePlayerName,
-      timestamp: new Date().toISOString(),
-      questionMarks: false,
-      chordingMode: currentSettings?.chording,
-    },
+    metadata: buildReplayMetadata(),
     mouseTrackerConfig: {
       boardElement,
       squareSize: boardConfig.squareSize,
@@ -635,10 +610,33 @@ async function saveRecordingData(data: RecordingData): Promise<void> {
   }, rawvf).catch(err => merr('Failed to save replay:', err))
 }
 
+// --------------------------------------------------------------------------
+// Helpers
+// --------------------------------------------------------------------------
+
 /**
- * After a game ends, watch for the board to reset (player starts a new game).
- * When detected, automatically start recording the next game.
+ * Get the effective player name: explicit override from popup takes priority,
+ * then auto-detected from the site adapter, then undefined.
  */
+function getEffectivePlayerName(): string | undefined {
+  return playerName || currentAdapter?.getPlayerName?.() || undefined
+}
+
+/**
+ * Build a fresh ReplayMetadata object using the current adapter and settings.
+ * Called at game start and on finishAndReset transitions.
+ */
+function buildReplayMetadata(): ReplayMetadata {
+  return {
+    program: currentAdapter!.getProgramName(),
+    version: currentAdapter!.getVersion?.(),
+    player: getEffectivePlayerName(),
+    timestamp: new Date().toISOString(),
+    questionMarks: false,
+    chordingMode: currentSettings?.chording,
+  }
+}
+
 // --------------------------------------------------------------------------
 // Status / data responses
 // --------------------------------------------------------------------------
@@ -707,15 +705,7 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
 
       // finishAndReset keeps the mouse tracker alive (zero gap). We discard
       // the returned data — no mine positions for incomplete games.
-      const effectivePlayerName = playerName || adapter.getPlayerName?.() || undefined
-      recorder.finishAndReset('unknown', {
-        program: adapter.getProgramName(),
-        version: adapter.getVersion?.(),
-        player: effectivePlayerName,
-        timestamp: new Date().toISOString(),
-        questionMarks: false,
-        chordingMode: currentSettings?.chording,
-      })
+      recorder.finishAndReset('unknown', buildReplayMetadata())
 
       // finishAndReset sets frozen=true (normal for post-game-end). But
       // after a mid-game reset, the board is already in the new-game state

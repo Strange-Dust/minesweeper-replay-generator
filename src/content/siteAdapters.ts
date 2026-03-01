@@ -131,17 +131,6 @@ export interface SiteAdapter {
    */
   readSettings?(): GameSettings | null
 
-  /**
-   * Watch for settings changes on the settings page (e.g., user changes a dropdown).
-   * Calls back whenever a relevant setting changes.
-   */
-  watchSettings?(callback: (settings: GameSettings) => void): void
-
-  /**
-   * Stop watching for settings changes (cleanup).
-   */
-  cancelWatchSettings?(): void
-
   // --------------------------------------------------------------------------
   // Settings polling (localStorage)
   // --------------------------------------------------------------------------
