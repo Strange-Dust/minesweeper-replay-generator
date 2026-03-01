@@ -690,10 +690,45 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
 
   const boardElement = adapter.findBoardElement()
 
-  // --- Fast path: board is the same DOM node → no-op ---
+  // --- Fast path: board is the same DOM node ---
   // The face observer, finishAndReset, freeze/unfreeze, and onBoardReset
   // handle the entire game lifecycle. The URL change is the SPA catching up.
+  //
+  // Exception: if the recorder is in 'recording' state, the URL change means
+  // the player reset mid-game (face click, F2, spacebar) without winning or
+  // losing. The face observer correctly ignores these (pressed→unpressed =
+  // null, not win/lose), but the recorder keeps accumulating events from the
+  // abandoned game. Fix: use finishAndReset to discard the old events and
+  // immediately unfreeze — the board is already showing the new game.
+  //
+  // This does NOT touch the face observer, board reset watcher, or board
+  // change watcher. They are all still valid and watching the same DOM nodes.
   if (boardElement && boardElement === lastKnownBoardElement && document.contains(boardElement)) {
+    if (recorder && recorder.getState() === 'recording') {
+      mlog('Navigation handler: URL changed while recording → mid-game reset, discarding replay')
+
+      // finishAndReset keeps the mouse tracker alive (zero gap). We discard
+      // the returned data — no mine positions for incomplete games.
+      const effectivePlayerName = playerName || adapter.getPlayerName?.() || undefined
+      recorder.finishAndReset('unknown', {
+        program: adapter.getProgramName(),
+        version: adapter.getVersion?.(),
+        player: effectivePlayerName,
+        timestamp: new Date().toISOString(),
+        questionMarks: false,
+        chordingMode: currentSettings?.chording,
+      })
+
+      // finishAndReset sets frozen=true (normal for post-game-end). But
+      // after a mid-game reset, the board is already in the new-game state
+      // — there's no end-game display to wait through. Unfreeze immediately
+      // so the first click of the new game is captured without delay.
+      recorder.unfreeze()
+
+      currentState = 'ready'
+      return
+    }
+
     mlog('Navigation handler: same board element → no-op (lifecycle handled by face observer)')
     return
   }
