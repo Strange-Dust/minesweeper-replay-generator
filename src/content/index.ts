@@ -61,7 +61,15 @@ import { mlog, mwarn, merr } from '../utils/log'
  * replacement). Lower = more responsive to difficulty switches and page
  * changes, but slightly more CPU. 250–500ms is a reasonable range.
  */
-const BOARD_POLL_INTERVAL_MS = 300
+const BOARD_POLL_INTERVAL_MS = 200
+
+/**
+ * How often (ms) to poll for URL changes (SPA game-to-game navigation).
+ * Lower = faster detection of mid-game resets and new games, at the cost
+ * of slightly more frequent string comparisons (trivially cheap).
+ * 40ms gives worst-case 40ms latency.
+ */
+const URL_POLL_INTERVAL_MS = 40
 
 // --------------------------------------------------------------------------
 // State
@@ -854,7 +862,7 @@ function startNavigationMonitor(): void {
       // flag is off or if no board is found on the new page either.
       checkAlwaysRecord()
     }
-  }, 500)
+  }, URL_POLL_INTERVAL_MS)
 }
 
 // Start on content script load
