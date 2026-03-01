@@ -48,7 +48,7 @@ const VALID_CELL_SUFFIXES = new Set([
  * Returns e.g. "hdd" from class "skin_hdd".
  */
 function getSkinPrefix(): string | null {
-  const game = document.querySelector('#game')
+  const game = document.getElementById('game')
   if (!game) return null
 
   for (const cls of game.classList) {
@@ -101,7 +101,7 @@ function getCellSize(): number {
  * Returns 'won', 'lost', or null if game is still in progress.
  */
 function detectFaceState(): 'won' | 'lost' | null {
-  const face = document.querySelector('#top_area_face')
+  const face = document.getElementById('top_area_face')
   if (!face) return null
 
   // Different skins may use hyphens or underscores as separators
@@ -154,14 +154,14 @@ function parseChordingValue(value: string): ChordingMode {
  * Kept as a fallback — the localStorage bridge is the primary mechanism.
  */
 function readSettingsFromDOM(): GameSettings | null {
-  const chordingEl = document.querySelector('#property_chording') as HTMLSelectElement | null
+  const chordingEl = document.getElementById('property_chording') as HTMLSelectElement | null
   if (!chordingEl) return null  // Not on settings page
 
   const chording = parseChordingValue(chordingEl.value)
 
-  const keyboardEl = document.querySelector('#property_use_keyboard') as HTMLInputElement | null
-  const leftKeyEl = document.querySelector('#property_use_keyboard_left_button') as HTMLSelectElement | null
-  const rightKeyEl = document.querySelector('#property_use_keyboard_right_button') as HTMLSelectElement | null
+  const keyboardEl = document.getElementById('property_use_keyboard') as HTMLInputElement | null
+  const leftKeyEl = document.getElementById('property_use_keyboard_left_button') as HTMLSelectElement | null
+  const rightKeyEl = document.getElementById('property_use_keyboard_right_button') as HTMLSelectElement | null
 
   const keyboardEnabled = keyboardEl?.checked ?? false
   const leftKeyCode = leftKeyEl ? parseInt(leftKeyEl.value, 10) : DEFAULT_SETTINGS.keyboardMouse.leftKeyCode
@@ -265,7 +265,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
     },
 
     findBoardElement() {
-      return document.querySelector('#AreaBlock') as HTMLElement | null
+      return document.getElementById('AreaBlock')
     },
 
     findBorderElement() {
@@ -273,12 +273,12 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // (#AreaBlock). Clicks on this border that drag into the board are
       // treated by the site as valid clicks. The wrapper has class "noselect"
       // which prevents text selection and allows the drag behaviour.
-      return document.querySelector('#game') as HTMLElement | null
+      return document.getElementById('game')
     },
 
     getBoardConfig(): BoardConfig | null {
-      const cells = document.querySelectorAll('#AreaBlock .cell')
-      if (cells.length === 0) return null
+      const cells = document.getElementById('AreaBlock')?.querySelectorAll('.cell')
+      if (!cells || cells.length === 0) return null
 
       const lastCell = cells[cells.length - 1]
       const cols = parseInt(lastCell.getAttribute('data-x') ?? '0', 10) + 1
@@ -310,7 +310,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       const prefix = getSkinPrefix() ?? 'hdd'
       const mines: BoardPosition[] = []
 
-      const cells = document.querySelectorAll('#AreaBlock .cell')
+      const cells = document.getElementById('AreaBlock')?.querySelectorAll('.cell') ?? []
       for (const cell of cells) {
         const suffixes = extractStateSuffixes(cell, prefix)
         const isMine =
@@ -329,7 +329,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
 
     onGameEnd(callback) {
       // Watch the face element for class changes that indicate win/loss
-      const face = document.querySelector('#top_area_face')
+      const face = document.getElementById('top_area_face')
       if (!face) {
         mwarn('onGameEnd: #top_area_face not found in DOM')
         return
@@ -396,7 +396,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // which indicates the player has started a new game.
       // After a game ends, the face shows win/lose. When the user clicks
       // the face to start a new game, the face returns to neutral.
-      const face = document.querySelector('#top_area_face')
+      const face = document.getElementById('top_area_face')
       if (!face) {
         mwarn('onBoardReset: #top_area_face not found')
         return
@@ -440,7 +440,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       // changing difficulty replaces all .cell elements (childList mutation),
       // while same-size restarts only change cell classes (no childList mutation).
       // This distinguishes difficulty switches from normal game restarts.
-      const board = document.querySelector('#AreaBlock')
+      const board = document.getElementById('AreaBlock')
       if (!board) return
 
       if (boardChangeObserver) {
