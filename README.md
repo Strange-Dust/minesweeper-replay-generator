@@ -1,6 +1,21 @@
+# AI Disclaimer
+Claude Opus 4.6
+
+Human code review status: started, not complete.
+
 # Minesweeper Replay Generator
 
 A browser extension that records minesweeper games played online and generates `.rawvf` replay files.
+
+### Loading in Chrome
+1. Go to `chrome://extensions/`
+2. Enable "Developer mode"
+3. Click "Load unpacked" → select the `dist/` folder
+
+### Loading in Firefox
+1. Go to `about:debugging#/runtime/this-firefox`
+2. Click "Load Temporary Add-on" → select `dist/manifest.json`
+
 
 ## What is RAWVF?
 
@@ -14,21 +29,12 @@ It captures:
 
 ## How It Works
 
-1. User navigates to a minesweeper website and clicks **Start Recording**
+1. User navigates to a minesweeper website, opens the extension popup and clicks **Start Recording**
 2. A **site adapter** detects the board element and configuration
 3. The **mouse tracker** listens for mouse events over the board
-4. The **board tracker** passively observes DOM mutations to detect cell state changes
+4. The **board tracker** passively observes DOM mutations to detect game changes
 5. When the game ends (or user stops), the **RAWVF writer** generates the replay file
 6. User downloads the `.rawvf` file from the popup
-
-### Loading in Chrome
-1. Go to `chrome://extensions/`
-2. Enable "Developer mode"
-3. Click "Load unpacked" → select the `dist/` folder
-
-### Loading in Firefox
-1. Go to `about:debugging#/runtime/this-firefox`
-2. Click "Load Temporary Add-on" → select `dist/manifest.json`
 
 ### Current Status
 * Support for minesweeper.online
