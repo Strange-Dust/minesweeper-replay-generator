@@ -353,7 +353,6 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       faceObserver = new MutationObserver(() => {
         mlog('Face class changed:', face.className)
         const result = detectFaceState()
-        mlog('detectFaceState() =', result)
 
         if (!result) {
           // Face is neutral (or pressed during gameplay) — not a game end,
@@ -369,6 +368,7 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
           return
         }
 
+        mlog('detectFaceState() =', result)
         // Real game end: face transitioned to win/lose AFTER being neutral.
         // Disconnect BEFORE calling the callback. The callback may call
         // startNextGame → onGameEnd, which creates a new faceObserver.

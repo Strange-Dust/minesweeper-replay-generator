@@ -466,7 +466,7 @@ function setupGameEndHandler(adapter: SiteAdapter): void {
 
 /**
  * Set up and start a new game recorder within the active session.
- * Called at session start and after each board reset.
+ * Called at session start and when board size changes.
  */
 function startNextGame(adapter: SiteAdapter): void {
   // Guard: don't start if there's already an active recorder.
