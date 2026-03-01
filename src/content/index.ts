@@ -753,6 +753,14 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
   lastKnownBoardElement = null
   currentState = 'ready'
 
+  // If the adapter knows this URL can't have a board, skip the retry loop.
+  // The board presence monitor will pick things up when the user navigates
+  // back to a game page.
+  if (adapter.isGamePage && !adapter.isGamePage()) {
+    mlog('Navigation handler: non-game page, skipping board search')
+    return
+  }
+
   // Wait for the SPA to finish rendering the new page, then re-initialize.
   // Use retries because SPA content loading is asynchronous.
   let attempts = 0

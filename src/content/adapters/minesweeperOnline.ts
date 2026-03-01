@@ -271,6 +271,10 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       return window.location.hostname === 'minesweeper.online'
     },
 
+    isGamePage() {
+      return window.location.pathname.startsWith('/game/')
+    },
+
     findBoardElement() {
       return document.getElementById('AreaBlock')
     },

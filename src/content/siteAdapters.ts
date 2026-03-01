@@ -47,6 +47,13 @@ export interface SiteAdapter {
   matches(): boolean
 
   /**
+   * Check whether the current URL is a game page (i.e., could have a board).
+   * Used to skip unnecessary board-search retries on non-game pages
+   * like settings, leaderboards, etc.
+   */
+  isGamePage?(): boolean
+
+  /**
    * Find the board container element in the DOM.
    * Returns null if the board is not found.
    */
