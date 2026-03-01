@@ -137,9 +137,13 @@ function buildBoard(recording: RecordingData): string {
 
   // Place mines
   for (const mine of minePositions) {
-    if (mine.row >= 0 && mine.row < board.rows && mine.col >= 0 && mine.col < board.cols) {
-      grid[mine.row]![mine.col] = '*'
+    if (mine.row < 0 || mine.row >= board.rows || mine.col < 0 || mine.col >= board.cols) {
+      console.error(
+        `[MSR] Mine position out of bounds: (row=${mine.row}, col=${mine.col}) ` +
+        `on ${board.cols}x${board.rows} board.`)
+      continue
     }
+    grid[mine.row]![mine.col] = '*'
   }
 
   const lines = ['Board:']
