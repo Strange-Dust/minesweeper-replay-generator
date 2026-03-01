@@ -34,9 +34,7 @@ import type { BoardConfig, BoardPosition, GameResult } from '../../types/rawvf'
 import type { GameSettings, ChordingMode } from '../../types/settings'
 import { DEFAULT_SETTINGS } from '../../types/settings'
 
-// Timestamped logging helpers
-const mlog = (...args: unknown[]) => console.debug(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
-const mwarn = (...args: unknown[]) => console.warn(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
+import { mlog, mwarn } from '../../utils/log'
 
 /** Known cell state suffixes — used to validate class names extracted from cell elements. */
 const VALID_CELL_SUFFIXES = new Set([

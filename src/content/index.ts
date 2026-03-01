@@ -50,9 +50,7 @@ if ((window as any)[GUARD_KEY]) {
 }
 ;(window as any)[GUARD_KEY] = true
 
-// Timestamped logging helpers
-const mlog = (...args: unknown[]) => console.debug(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
-const mwarn = (...args: unknown[]) => console.warn(`[MSR t=${performance.now().toFixed(1)}]`, ...args)
+import { mlog, mwarn, merr } from '../utils/log'
 
 // --------------------------------------------------------------------------
 // Configuration
@@ -634,7 +632,7 @@ async function saveRecordingData(data: RecordingData): Promise<void> {
     mines: data.board.mines,
     result: data.result,
     timeMs: data.totalTimeMs,
-  }, rawvf).catch(err => console.error(`[MSR t=${performance.now().toFixed(1)}] Failed to save replay:`, err))
+  }, rawvf).catch(err => merr('Failed to save replay:', err))
 }
 
 /**
