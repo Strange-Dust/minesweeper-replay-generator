@@ -34,7 +34,7 @@ export function generateRawvf(recording: RecordingData): string {
 
 /**
  * Generate a suggested filename for the RAWVF export.
- * Format / Naming Convention: "replay_YYYYMMDD_HHMMSS.rawvf"
+ * Format / Naming Convention: "YYYYMMDD_HHMMSS_<level>_<time>.rawvf"
  */
 export function generateFilename(recording: RecordingData): string {
   const level = getLevelName(
