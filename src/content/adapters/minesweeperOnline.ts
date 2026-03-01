@@ -229,7 +229,14 @@ function readSettingsFromLocalStorage(): Record<string, string | null> {
   return data
 }
 
-/** How often (ms) to re-read localStorage settings. */
+/** 
+ * How often (ms) to re-read localStorage settings. 
+ * The settings (mostly) don't change anything in the replay until it is finalized,
+ * so we can afford to poll at a relatively low frequency to minimize overhead.
+ * 
+ * It is hypothetically possible for someone to change the settings extremely fast,
+ * and glitch out a replay, but this is extremely unlikely and only applies to keyboard buttons.
+*/
 const SETTINGS_POLL_INTERVAL_MS = 2000
 
 // ============================================================================
