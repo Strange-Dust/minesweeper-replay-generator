@@ -324,29 +324,28 @@ export class GameRecorder {
       if (this.waitingForRelease && isReleaseEvent(event.event)) {
         // This release marks the official game start.
         //
-        // Use performance.now() — captured here in our event handler —
-        // rather than domEvent.timeStamp.  Both are on the same clock
-        // (relative to performance.timeOrigin), so mixing them in the
-        // subtraction `domEvent.timeStamp - gameStartTime` is valid.
+        // Use the raw DOM timestamp of the first release as time-zero.
+        // mouseTracker.emitEvent() already computes every event's timeMs
+        // as `domEvent.timeStamp - gameStartTime`, so by setting
+        // gameStartTime to the first release's own domEvent.timeStamp
+        // we get purely hardware-level deltas with no JS-scheduling
+        // jitter mixed in.
         //
-        // Why not domEvent.timeStamp?  The timestamp reflects when the
-        // browser detected the input, BEFORE any JavaScript runs.  The
-        // site's own timer starts from performance.now() inside its
-        // handler, which fires before ours (target/bubble ordering).
-        // By the time our handler runs, the site has already spent
-        // ~10-15ms processing the first click (revealing cells,
-        // cascading openings, etc.) and then started its timer.
-        // Using performance.now() here — after the site's handler —
-        // aligns our time-zero with the site's.
+        // Previously this used performance.now() (captured when our
+        // handler runs, ~5-15ms after domEvent.timeStamp).  That mixed
+        // two timing domains: browser-detected input timestamps for all
+        // subsequent events, minus a JS-execution-time origin.  The
+        // mismatch inflated total game time by the handler delay (~10ms)
+        // because the start was shifted later while the end event still
+        // used its raw domEvent.timeStamp.
         //
-        // At game end the site's processing is much lighter (~1-2ms),
-        // so using domEvent.timeStamp for end events is fine.  The net
-        // effect is that our total game time closely matches the site's
-        // reported duration.  Relative timing between events is
-        // preserved exactly (all shifted by the same constant).
-        const gameStartNow = performance.now()
-        this.gameStartTime = gameStartNow
-        this.mouseTracker.setGameStartTime(gameStartNow)
+        // With this approach every timestamp is on the same clock basis
+        // (DOMHighResTimeStamp from the browser's input pipeline), so
+        // relative timing between events is exact and total game time
+        // is as accurate as the browser's input detection allows.
+        const gameStartTimestamp = event.rawTimestamp
+        this.gameStartTime = gameStartTimestamp
+        this.mouseTracker.setGameStartTime(gameStartTimestamp)
 
         // Emit all buffered press events at time 0.
         // Convention: overwrite press coordinates with the release
