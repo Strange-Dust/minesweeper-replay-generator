@@ -41,6 +41,7 @@ browser.runtime.onInstalled.addListener((details) => {
  * discarded, frozen, or on a restricted page like the Chrome Web Store).
  */
 async function injectIntoExistingTabs(): Promise<void> {
+  // TODO: site-specific despite not being in a site adapter
   try {
     const tabs = await browser.tabs.query({ url: 'https://minesweeper.online/*' })
     for (const tab of tabs) {
