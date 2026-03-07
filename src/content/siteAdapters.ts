@@ -35,6 +35,12 @@ export interface SiteAdapter {
   getVersion?(): string
 
   /**
+   * Get the URL of the current game (e.g. a permalink to the completed game).
+   * Returns null if not available.
+   */
+  getGameURL?(): string | null
+
+  /**
    * Detect the current player's name from the site (e.g. logged-in username).
    * Returns null/undefined if not available or not logged in.
    */

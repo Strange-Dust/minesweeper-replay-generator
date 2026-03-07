@@ -104,6 +104,8 @@ export interface ReplayMetadata {
   program: string
   /** Version of the source program (optional) */
   version?: string
+  /** URL of the game (optional, site-specific) */
+  url?: string
   /** ISO timestamp of when the game was played */
   timestamp?: string
   /** Whether question marks are enabled */

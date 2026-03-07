@@ -69,6 +69,10 @@ function buildDescription(recording: RecordingData): string {
     lines.push(`Version: ${metadata.version}`)
   }
 
+  if (metadata.url) {
+    lines.push(`URL: ${metadata.url}`)
+  }
+
   if (metadata.player) {
     lines.push(`Player: ${metadata.player}`)
   }

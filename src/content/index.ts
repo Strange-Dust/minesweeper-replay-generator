@@ -638,6 +638,7 @@ function buildReplayMetadata(): ReplayMetadata {
   return {
     program: currentAdapter!.getProgramName(),
     version: currentAdapter!.getVersion?.(),
+    url: currentAdapter!.getGameURL?.() ?? undefined,
     player: getEffectivePlayerName(),
     timestamp: new Date().toISOString(),
     questionMarks: false,

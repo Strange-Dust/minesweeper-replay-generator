@@ -275,6 +275,14 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       return window.location.pathname.startsWith('/game/')
     },
 
+    getGameURL() {
+      // The URL contains the game ID when on a game page (e.g. /game/5757572476)
+      if (window.location.pathname.startsWith('/game/')) {
+        return window.location.href
+      }
+      return null
+    },
+
     findBoardElement() {
       return document.getElementById('AreaBlock')
     },
