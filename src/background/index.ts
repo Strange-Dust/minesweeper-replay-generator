@@ -13,6 +13,7 @@
 
 import browser from '../utils/browser'
 import { mlog, mwarn } from '../utils/log'
+import { SUPPORTED_SITE_PATTERNS } from '../sites'
 
 // --------------------------------------------------------------------------
 // Extension lifecycle
@@ -25,8 +26,8 @@ browser.runtime.onInstalled.addListener((details) => {
     mlog(`Minesweeper Replay Generator updated to v${browser.runtime.getManifest().version}`)
   }
 
-  // Inject the content script into any minesweeper.online tabs that are
-  // already open. Normally content_scripts only fire on new page loads,
+  // Inject the content script into any supported minesweeper site tabs that
+  // are already open. Normally content_scripts only fire on new page loads,
   // so tabs open before install/update wouldn't have it.
   //
   // This is purely the same passive, read-only content script that
@@ -36,14 +37,13 @@ browser.runtime.onInstalled.addListener((details) => {
 })
 
 /**
- * Find all open minesweeper.online tabs and inject the content script.
- * Best-effort: errors are logged but never thrown (the tab might be
- * discarded, frozen, or on a restricted page like the Chrome Web Store).
+ * Find all open tabs matching supported minesweeper sites and inject the
+ * content script. Best-effort: errors are logged but never thrown (the tab
+ * might be discarded, frozen, or on a restricted page like the Chrome Web Store).
  */
 async function injectIntoExistingTabs(): Promise<void> {
-  // TODO: site-specific despite not being in a site adapter
   try {
-    const tabs = await browser.tabs.query({ url: 'https://minesweeper.online/*' })
+    const tabs = await browser.tabs.query({ url: SUPPORTED_SITE_PATTERNS })
     for (const tab of tabs) {
       if (!tab.id) continue
       try {
