@@ -13,7 +13,14 @@
 
 import browser from '../utils/browser'
 import { mlog, mwarn } from '../utils/log'
-import { SUPPORTED_SITE_PATTERNS } from '../sites'
+
+/**
+ * URL match patterns for all supported minesweeper sites.
+ * Keep in sync with manifest.json content_scripts.matches + host_permissions.
+ */
+const SUPPORTED_SITE_PATTERNS: string[] = [
+  'https://minesweeper.online/*',
+]
 
 // --------------------------------------------------------------------------
 // Extension lifecycle
