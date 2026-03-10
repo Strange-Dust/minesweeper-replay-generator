@@ -471,7 +471,7 @@ function getLevelDisplay(cols: number, rows: number, mines: number): string {
   if (cols === 8 && rows === 8 && mines === 10) return 'Beg'
   if (cols === 16 && rows === 16 && mines === 40) return 'Int'
   if (cols === 30 && rows === 16 && mines === 99) return 'Exp'
-  return `${cols}×${rows}`
+  return `${cols}x${rows}`
 }
 
 function formatResult(result: string): string {
