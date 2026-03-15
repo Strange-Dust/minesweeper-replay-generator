@@ -11,7 +11,7 @@
 
 import browser from '../utils/browser'
 import { merr } from '../utils/log'
-import type { StatusResponse } from '../types/messages'
+import type { StatusResponse, WsCaptureStatusResponse, ParseWsReplayResponse } from '../types/messages'
 import type { GameSettings, ChordingMode } from '../types/settings'
 import { DEFAULT_SETTINGS } from '../types/settings'
 import {
@@ -63,6 +63,14 @@ const keyboardEnabled = document.getElementById('keyboard-enabled') as HTMLInput
 const keyboardKeysEl = document.getElementById('keyboard-keys') as HTMLDivElement
 const leftKeySelect = document.getElementById('left-key') as HTMLSelectElement
 const rightKeySelect = document.getElementById('right-key') as HTMLSelectElement
+
+// Converter elements
+const autoCaptureRow = document.getElementById('auto-capture-row') as HTMLDivElement
+const btnCaptureToggle = document.getElementById('btn-capture-toggle') as HTMLButtonElement
+const captureStatus = document.getElementById('capture-status') as HTMLSpanElement
+const pasteInput = document.getElementById('paste-input') as HTMLTextAreaElement
+const btnConvert = document.getElementById('btn-convert') as HTMLButtonElement
+const convertStatus = document.getElementById('convert-status') as HTMLSpanElement
 
 // --------------------------------------------------------------------------
 // State
@@ -123,6 +131,13 @@ async function init(): Promise<void> {
   leftKeySelect.addEventListener('change', onManualSettingChange)
   rightKeySelect.addEventListener('change', onManualSettingChange)
 
+  // Converter UI
+  btnCaptureToggle.addEventListener('click', toggleCapture)
+  btnConvert.addEventListener('click', convertPaste)
+  pasteInput.addEventListener('input', () => {
+    btnConvert.disabled = pasteInput.value.trim().length === 0
+  })
+
   // Initial visibility for "Select wins" link
   updateSelectWinsVisibility()
 
@@ -131,6 +146,7 @@ async function init(): Promise<void> {
     refreshGameList(),
     refreshStatus(),
     refreshSettings(),
+    refreshCaptureStatus(),
   ])
 }
 
@@ -661,6 +677,125 @@ function getManualSettingsFromUI(): GameSettings {
       leftKeyCode: parseInt(leftKeySelect.value, 10) || DEFAULT_SETTINGS.keyboardMouse.leftKeyCode,
       rightKeyCode: parseInt(rightKeySelect.value, 10) || DEFAULT_SETTINGS.keyboardMouse.rightKeyCode,
     },
+  }
+}
+
+// --------------------------------------------------------------------------
+// Replay Converter
+// --------------------------------------------------------------------------
+
+/**
+ * Send a message to the background service worker.
+ */
+async function sendToBackground(message: { type: string; [key: string]: unknown }): Promise<unknown> {
+  try {
+    return await browser.runtime.sendMessage(message)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get the active tab ID, or null if unavailable.
+ */
+async function getActiveTabId(): Promise<number | null> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
+  return tab?.id ?? null
+}
+
+/**
+ * Query the background for current WebSocket capture status and update UI.
+ */
+async function refreshCaptureStatus(): Promise<void> {
+  const tabId = await getActiveTabId()
+  if (!tabId) {
+    autoCaptureRow.classList.add('hidden')
+    return
+  }
+
+  const response = await sendToBackground({
+    type: 'GET_WS_CAPTURE_STATUS',
+    tabId,
+  }) as WsCaptureStatusResponse | null
+
+  if (!response || !response.supported) {
+    autoCaptureRow.classList.add('hidden')
+    return
+  }
+
+  autoCaptureRow.classList.remove('hidden')
+  btnCaptureToggle.disabled = false
+  updateCaptureUI(response.active)
+}
+
+function updateCaptureUI(active: boolean): void {
+  if (active) {
+    btnCaptureToggle.textContent = '⏹ Stop Capture'
+    btnCaptureToggle.className = 'btn btn-sm btn-danger'
+    captureStatus.textContent = 'Listening for replay data…'
+    captureStatus.className = 'converter-status'
+  } else {
+    btnCaptureToggle.textContent = '▶ Start Capture'
+    btnCaptureToggle.className = 'btn btn-sm btn-primary'
+    captureStatus.textContent = ''
+    captureStatus.className = 'converter-status'
+  }
+}
+
+async function toggleCapture(): Promise<void> {
+  const tabId = await getActiveTabId()
+  if (!tabId) return
+
+  // Check current state
+  const status = await sendToBackground({
+    type: 'GET_WS_CAPTURE_STATUS',
+    tabId,
+  }) as WsCaptureStatusResponse | null
+
+  if (status?.active) {
+    await sendToBackground({ type: 'STOP_WS_CAPTURE', tabId })
+    updateCaptureUI(false)
+  } else {
+    const result = await sendToBackground({ type: 'START_WS_CAPTURE', tabId }) as { success: boolean } | null
+    if (result?.success) {
+      updateCaptureUI(true)
+    } else {
+      captureStatus.textContent = 'Failed to start capture'
+      captureStatus.className = 'converter-status error'
+    }
+  }
+}
+
+async function convertPaste(): Promise<void> {
+  const rawText = pasteInput.value.trim()
+  if (!rawText) return
+
+  btnConvert.disabled = true
+  convertStatus.textContent = 'Converting…'
+  convertStatus.className = 'converter-status'
+
+  const response = await sendToContentScript({
+    type: 'PARSE_WS_REPLAY',
+    rawText,
+  }) as ParseWsReplayResponse | null
+
+  if (!response) {
+    convertStatus.textContent = 'Content script unavailable — navigate to minesweeper.online first'
+    convertStatus.className = 'converter-status error'
+    btnConvert.disabled = false
+    return
+  }
+
+  if (response.success) {
+    convertStatus.textContent = `Saved! Game #${response.gameId ?? 'unknown'}`
+    convertStatus.className = 'converter-status success'
+    pasteInput.value = ''
+    btnConvert.disabled = true
+    await refreshGameList()
+  } else {
+    convertStatus.textContent = response.error ?? 'Conversion failed'
+    convertStatus.className = 'converter-status error'
+    btnConvert.disabled = false
   }
 }
 

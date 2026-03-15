@@ -44,6 +44,54 @@ export interface GetStatusMessage {
 }
 
 // ============================================================================
+// Popup → Background: WebSocket capture control
+// ============================================================================
+
+export interface StartWsCaptureMessage {
+  type: 'START_WS_CAPTURE'
+}
+
+export interface StopWsCaptureMessage {
+  type: 'STOP_WS_CAPTURE'
+}
+
+export interface GetWsCaptureStatusMessage {
+  type: 'GET_WS_CAPTURE_STATUS'
+}
+
+export interface WsCaptureStatusResponse {
+  supported: boolean
+  active: boolean
+}
+
+// ============================================================================
+// Background → Content script: captured WebSocket data
+// ============================================================================
+
+export interface WsReplayDataMessage {
+  type: 'WS_REPLAY_DATA'
+  /** The raw replay data extracted from the 203 WebSocket response. */
+  data: unknown
+}
+
+// ============================================================================
+// Popup → Content script: manual paste of WS replay data
+// ============================================================================
+
+export interface ParseWsReplayMessage {
+  type: 'PARSE_WS_REPLAY'
+  /** Raw string pasted by the user (e.g. `42["response",[...]]`) */
+  rawText: string
+}
+
+export interface ParseWsReplayResponse {
+  success: boolean
+  error?: string
+  /** Game ID from the parsed replay, if successful */
+  gameId?: number
+}
+
+// ============================================================================
 // Background → Popup response messages
 // ============================================================================
 
@@ -68,6 +116,13 @@ export type PopupToContentMessage =
   | StartRecordingMessage
   | StopRecordingMessage
   | GetStatusMessage
+  | ParseWsReplayMessage
+
+/** Messages sent from popup to background */
+export type PopupToBackgroundMessage =
+  | StartWsCaptureMessage
+  | StopWsCaptureMessage
+  | GetWsCaptureStatusMessage
 
 /** Messages sent from content script to background */
 export type ContentToBackgroundMessage =
@@ -75,5 +130,13 @@ export type ContentToBackgroundMessage =
   | RecordingStoppedMessage
   | RecordingStateChangedMessage
 
+/** Messages sent from background to content script */
+export type BackgroundToContentMessage =
+  | WsReplayDataMessage
+
 /** All extension messages */
-export type ExtensionMessage = PopupToContentMessage | ContentToBackgroundMessage
+export type ExtensionMessage =
+  | PopupToContentMessage
+  | PopupToBackgroundMessage
+  | ContentToBackgroundMessage
+  | BackgroundToContentMessage

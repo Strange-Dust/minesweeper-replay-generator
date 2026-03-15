@@ -29,6 +29,10 @@ function generateManifest(browser) {
   } else if (browser === 'firefox') {
     // Firefox MV3: uses scripts, warns on service_worker
     delete manifest.background.service_worker
+    // Remove Chrome-only permissions that Firefox doesn't support.
+    // "debugger" is used for passive WebSocket capture via chrome.debugger —
+    // Firefox has no equivalent API, and the feature gracefully degrades.
+    manifest.permissions = manifest.permissions.filter(p => p !== 'debugger')
   }
 
   return JSON.stringify(manifest, null, 2) + '\n'

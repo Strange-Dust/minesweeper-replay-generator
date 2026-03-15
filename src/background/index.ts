@@ -13,6 +13,14 @@
 
 import browser from '../utils/browser'
 import { mlog, mwarn } from '../utils/log'
+import {
+  initWebSocketCapture,
+  isWebSocketCaptureSupported,
+  startCapture,
+  stopCapture,
+  isCaptureActive,
+} from './webSocketCapture'
+import type { WsCaptureStatusResponse } from '../types/messages'
 
 /**
  * URL match patterns for all supported minesweeper sites.
@@ -74,15 +82,62 @@ async function injectIntoExistingTabs(): Promise<void> {
 // --------------------------------------------------------------------------
 
 browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime.MessageSender) => {
-  const msg = message as { type: string; state?: string }
-  // Currently, popup talks directly to content script.
-  // This handler is here for potential future use (e.g., badge updates).
+  const msg = message as { type: string; state?: string; tabId?: number }
 
   if (msg.type === 'RECORDING_STATE_CHANGED') {
     // Update the extension badge to show recording state
     updateBadge(msg.state ?? 'idle', sender.tab?.id)
   }
+
+  // --- WebSocket capture messages ---
+  // These can come from either the popup (sender.tab is undefined) or
+  // the content script (sender.tab.id available). The popup sends an
+  // explicit tabId field; the content script uses sender.tab.id.
+
+  if (msg.type === 'START_WS_CAPTURE') {
+    const tabId = msg.tabId ?? sender.tab?.id
+    if (!tabId) return Promise.resolve({ success: false, error: 'No tab ID' })
+
+    return startCapture(tabId, handleCapturedReplayData)
+      .then((success) => ({ success }))
+      .catch((err) => ({ success: false, error: String(err) }))
+  }
+
+  if (msg.type === 'STOP_WS_CAPTURE') {
+    const tabId = msg.tabId ?? sender.tab?.id
+    if (!tabId) return Promise.resolve({ success: true })
+
+    return stopCapture(tabId).then(() => ({ success: true }))
+  }
+
+  if (msg.type === 'GET_WS_CAPTURE_STATUS') {
+    const tabId = msg.tabId ?? sender.tab?.id
+    const response: WsCaptureStatusResponse = {
+      supported: isWebSocketCaptureSupported(),
+      active: tabId != null && isCaptureActive(tabId),
+    }
+    return Promise.resolve(response)
+  }
 })
+
+// --------------------------------------------------------------------------
+// WebSocket capture: forward replay data to the content script
+// --------------------------------------------------------------------------
+
+/**
+ * Called by the WebSocket capture module when a 203 replay response is
+ * extracted from a WebSocket frame. Forwards the data to the content
+ * script in the originating tab for storage/processing.
+ */
+function handleCapturedReplayData(tabId: number, data: unknown): void {
+  mlog('Forwarding captured replay data to tab', tabId)
+  browser.tabs.sendMessage(tabId, {
+    type: 'WS_REPLAY_DATA',
+    data,
+  }).catch((err) => {
+    mwarn('Could not forward replay data to tab', tabId, err)
+  })
+}
 
 // --------------------------------------------------------------------------
 // Badge updates
@@ -101,3 +156,12 @@ function updateBadge(state: string, tabId?: number): void {
   browser.action.setBadgeText({ text: config.text, tabId })
   browser.action.setBadgeBackgroundColor({ color: config.color, tabId })
 }
+
+// --------------------------------------------------------------------------
+// WebSocket capture initialization
+// --------------------------------------------------------------------------
+// Register CDP event listeners at the top level of the service worker so
+// they persist across MV3 service worker restarts. Safe on all browsers —
+// no-ops if chrome.debugger is unavailable.
+
+initWebSocketCapture()

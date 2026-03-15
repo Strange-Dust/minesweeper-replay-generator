@@ -433,3 +433,87 @@ summary {
 .hidden {
   display: none !important;
 }
+
+/* ---- Replay Converter ---- */
+
+.converter-desc {
+  margin: 6px 0;
+  font-size: 11px;
+  color: #666;
+}
+
+.converter-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e9ecef;
+}
+
+.converter-row:first-of-type {
+  margin-top: 6px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.converter-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.converter-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: #333;
+}
+
+.converter-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #e9ecef;
+  color: #666;
+}
+
+.converter-hint {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.paste-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+  resize: vertical;
+  min-height: 48px;
+}
+
+.paste-input:focus {
+  border-color: #86b7fe;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+}
+
+.converter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.converter-status {
+  font-size: 11px;
+  color: #666;
+}
+
+.converter-status.success {
+  color: #198754;
+}
+
+.converter-status.error {
+  color: #dc3545;
+}

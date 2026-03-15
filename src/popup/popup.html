@@ -74,6 +74,54 @@
       </div>
     </div>
 
+    <!-- Replay Converter -->
+    <div id="converter-section" class="section">
+      <details id="converter-details">
+        <summary>🔄 Replay Converter</summary>
+
+        <p class="converter-desc">
+          Convert minesweeper.online server replays to RAWVF files.
+        </p>
+
+        <!-- Auto-capture (Chrome only) -->
+        <div id="auto-capture-row" class="converter-row">
+          <div class="converter-row-header">
+            <span class="converter-label">Auto-capture</span>
+            <span class="converter-badge" id="capture-badge">Chrome only</span>
+          </div>
+          <p class="converter-hint">
+            Attaches browser debugger to passively read WebSocket traffic.
+            Navigate to a replay page and it will be captured automatically.
+          </p>
+          <button id="btn-capture-toggle" class="btn btn-sm btn-primary" disabled>
+            ▶ Start Capture
+          </button>
+          <span id="capture-status" class="converter-status"></span>
+        </div>
+
+        <!-- Manual paste (all browsers) -->
+        <div class="converter-row">
+          <div class="converter-row-header">
+            <span class="converter-label">Manual paste</span>
+            <span class="converter-badge">All browsers</span>
+          </div>
+          <p class="converter-hint">
+            Open DevTools → Network → WS tab, find the 203 response frame,
+            and paste the message content below.
+          </p>
+          <textarea id="paste-input" class="paste-input"
+            placeholder='Paste socket.io frame or JSON array here…&#10;e.g. 42["response",[null,203,[...]]]'
+            rows="3"></textarea>
+          <div class="converter-actions">
+            <button id="btn-convert" class="btn btn-sm btn-success" disabled>
+              Convert to RAWVF
+            </button>
+            <span id="convert-status" class="converter-status"></span>
+          </div>
+        </div>
+      </details>
+    </div>
+
     <!-- Game Settings -->
     <div id="settings-section" class="section">
       <details>

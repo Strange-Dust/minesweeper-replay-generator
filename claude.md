@@ -27,7 +27,39 @@ Communication between contexts uses `browser.runtime.sendMessage()` / `browser.t
 - Uses `webextension-polyfill` — always import from `src/utils/browser.ts`, never use `chrome.*` directly.
 - Message listeners return Promises (polyfill pattern) instead of using `sendResponse` callbacks.
 - Avoid Chrome-only APIs: no `offscreen`, careful with `storage.session`.
+- Exception: `chrome.debugger` is used for WebSocket capture (Chrome-only, graceful no-op elsewhere). Accessed via bracket notation `(chrome as ...)['debugger']` since "debugger" is a reserved keyword. The `esbuild.config.mjs` strips the `debugger` permission from the Firefox manifest.
 - Content scripts share the page's origin, so `localStorage.getItem()` reads the site's own storage directly — no `<script>` injection or `"world": "MAIN"` needed.
+
+### WebSocket capture (Chrome-only)
+Passive observation of WebSocket traffic from minesweeper.online game servers (`wss://main*.minesweeper.online`) using the Chrome DevTools Protocol via `chrome.debugger`.
+
+- **Truly passive**: reads network frames at the browser level. No scripts injected into the page, no prototypes modified, no DOM touched.
+- **Transparent**: Chrome shows a yellow "debugging" infobar while the debugger is attached. The user always knows capture is active.
+- **Undetectable by the page**: there is no JavaScript API for page scripts to detect `chrome.debugger` attachment.
+- **Functionally equivalent to DevTools**: same as a user having the Chrome DevTools Network tab open.
+- The background service worker manages the debugger lifecycle. The popup sends start/stop messages with the active tab's ID.
+- Looks for socket.io EVENT frames (prefix `42`) containing `["response", [requestId, 203, replayData]]`.
+- Firefox/Safari: feature is unavailable (no equivalent API). `isWebSocketCaptureSupported()` returns false, all capture calls no-op. The auto-capture UI is hidden on these browsers.
+
+### Replay Converter mode
+A distinct mode from the normal replay recorder. Converts minesweeper.online server replay data (WoM 203 responses) into RAWVF files.
+
+Two input paths:
+1. **Auto-capture (Chrome only)**: User clicks "Start Capture" in the popup → background attaches `chrome.debugger` → when a 203 replay frame arrives on the WebSocket, it's forwarded to the content script → converted to RAWVF and saved to storage.
+2. **Manual paste (all browsers)**: User opens DevTools Network tab → finds the 203 WebSocket response frame → pastes the raw message into the popup textarea → content script parses and converts to RAWVF.
+
+The converter accepts two paste formats:
+- Socket.io frame: `42["response",[null,203,[...]]]`
+- Response array (no 42 prefix): `["response",[null,203,[...]]]`
+- Raw JSON array: `[{gameMeta}, {boardData}, [...clicks], ...]`
+
+The WoM data format (from the 203 response inner array) is:
+- Index 0: Game metadata (`{ id, sizeX, sizeY, mines, state, duration, ... }`)
+- Index 1: Board data (`{ t: number[] }` where 10 = mine, 0–8 = numbers)
+- Index 2: Click events (`[{ type, time, x, y }]` — type 0=left, 1=right, 3=chord)
+- Indices 3–7: Additional data (not used for conversion)
+
+Conversion is handled by `src/rawvf/womConverter.ts`. Socket.io frame parsing is in `src/utils/socketIoParser.ts` (shared between background and content script).
 
 ### Coordinate conventions
 - Internal board positions: `(row, col)`, 0-indexed, row always comes first
@@ -125,7 +157,9 @@ npm run typecheck
 ## File Structure
 ```
 src/
-├── background/index.ts     — service worker (lifecycle, badge)
+├── background/
+│   ├── index.ts            — service worker (lifecycle, badge, WS capture wiring)
+│   └── webSocketCapture.ts — passive WebSocket frame capture via chrome.debugger
 ├── content/
 │   ├── index.ts            — content script entry, message handling, recorder lifecycle
 │   ├── siteAdapters.ts     — SiteAdapter interface and registry
@@ -134,8 +168,10 @@ src/
 ├── popup/
 │   ├── popup.html          — popup markup
 │   ├── popup.css           — popup styles
-│   └── popup.ts            — popup logic (controls, status, download)
-├── rawvf/writer.ts         — converts RecordingData to .rawvf text
+│   └── popup.ts            — popup logic (controls, status, download, converter)
+├── rawvf/
+│   ├── writer.ts           — converts RecordingData to .rawvf text
+│   └── womConverter.ts     — converts WoM 203 replay data to RecordingData
 ├── recording/
 │   ├── recorder.ts         — GameRecorder orchestrator (state machine, event buffering)
 │   ├── mouseTracker.ts     — mouse + keyboard event capture on board element
@@ -145,9 +181,12 @@ src/
 ├── types/
 │   ├── rawvf.ts            — board, event, recording types
 │   ├── messages.ts         — extension messaging types
-│   └── settings.ts         — GameSettings, StoredSettings, ChordingMode types
+│   ├── settings.ts         — GameSettings, StoredSettings, ChordingMode types
+│   └── chrome-debugger.d.ts — minimal Chrome debugger API type declarations
 └── utils/
     ├── browser.ts          — webextension-polyfill re-export
+    ├── log.ts              — prefixed console logging helpers
+    ├── socketIoParser.ts   — socket.io frame parser (shared between background + content)
     └── zip.ts              — minimal zip creation for multi-game downloads
 docs/
 ├── minesweeper terminology.md
@@ -162,4 +201,4 @@ Reference docs live in `docs/`:
 - **rawvf spec.md** — the RAWVF file format grammar and field definitions
 
 ## Current Status
-First site adapter (minesweeper.online) is implemented and tested. Settings auto-detection, manual override, SPA navigation handling, multi-game sessions, and RAWVF output are all functional.
+First site adapter (minesweeper.online) is implemented and tested. Settings auto-detection, manual override, SPA navigation handling, multi-game sessions, RAWVF output, and WoM replay converter mode are all functional.

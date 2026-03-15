@@ -31,6 +31,8 @@ import type { GameSettings } from '../types/settings'
 import type { StatusResponse } from '../types/messages'
 import { GameRecorder } from '../recording/recorder'
 import { generateRawvf, generateFilename } from '../rawvf/writer'
+import { convertWomReplay } from '../rawvf/womConverter'
+import { parseWomReplayPaste } from '../utils/socketIoParser'
 import { saveGame } from '../storage/gameStorage'
 import { saveAutoDetectedSettings, getEffectiveSettings } from '../storage/settingsStorage'
 import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
@@ -160,7 +162,7 @@ function teardownOnInvalidContext(): void {
 // --------------------------------------------------------------------------
 
 browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtime.MessageSender) => {
-  const msg = message as { type: string; playerName?: string }
+  const msg = message as { type: string; playerName?: string; data?: unknown; rawText?: string }
   switch (msg.type) {
     case 'START_RECORDING':
       playerName = msg.playerName
@@ -176,6 +178,21 @@ browser.runtime.onMessage.addListener((message: unknown, _sender: browser.Runtim
 
     case 'GET_SETTINGS':
       return getEffectiveSettings().then(s => ({ settings: s }))
+
+    case 'WS_REPLAY_DATA':
+      return Promise.resolve(handleWomReplayData(msg.data))
+
+    case 'PARSE_WS_REPLAY': {
+      const rawText = msg.rawText
+      if (!rawText) {
+        return Promise.resolve({ success: false, error: 'No text provided' })
+      }
+      const parsed = parseWomReplayPaste(rawText)
+      if (parsed === null) {
+        return Promise.resolve({ success: false, error: 'Could not parse input. Expected a socket.io frame (42["response",[...]]) or a raw JSON replay array.' })
+      }
+      return Promise.resolve(handleWomReplayData(parsed))
+    }
   }
 })
 
@@ -931,3 +948,47 @@ browser.storage.onChanged.addListener((changes, area) => {
     checkAlwaysRecord()
   }
 })
+
+// --------------------------------------------------------------------------
+// WebSocket replay converter
+// --------------------------------------------------------------------------
+
+/**
+ * Handle replay data from a WoM 203 WebSocket response.
+ *
+ * Called either from:
+ *   - Background service worker forwarding chrome.debugger-captured data
+ *   - PARSE_WS_REPLAY message from the popup (manual paste)
+ *
+ * Converts the WoM data to RAWVF format and saves to storage.
+ */
+function handleWomReplayData(data: unknown): { success: boolean; error?: string; gameId?: number } {
+  try {
+    const { recording, gameId } = convertWomReplay(data)
+
+    // Use player name from popup override, or adapter-detected name
+    recording.metadata.player = getEffectivePlayerName()
+
+    const rawvf = generateRawvf(recording)
+    const filename = generateFilename(recording)
+
+    mlog(`WoM converter: saved game ${gameId} as ${filename}`)
+
+    // Persist to storage (same path as normal recordings)
+    saveGame({
+      filename,
+      timestamp: recording.metadata.timestamp ?? new Date().toISOString(),
+      cols: recording.board.cols,
+      rows: recording.board.rows,
+      mines: recording.board.mines,
+      result: recording.result,
+      timeMs: recording.totalTimeMs,
+    }, rawvf).catch(err => merr('Failed to save converted replay:', err))
+
+    return { success: true, gameId }
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    mwarn('WoM converter error:', errorMsg)
+    return { success: false, error: errorMsg }
+  }
+}
