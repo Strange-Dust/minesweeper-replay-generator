@@ -144,7 +144,7 @@ export function convertWomReplay(data: unknown): WomConversionResult {
     metadata: {
       program: 'Minesweeper Online',
       timestamp: gameMeta.finishedAt ?? gameMeta.createdAt ?? new Date().toISOString(),
-      player: undefined,
+      player: gameMeta.userId != null ? String(gameMeta.userId) : undefined,
       questionMarks: false,
       chordingMode,
       url: `https://minesweeper.online/game/${gameMeta.id}`,
@@ -299,7 +299,7 @@ function womXYToPixel(x: number, y: number, squareSize: number): { px: number; p
 function extractMinePositions(tiles: number[], numRows: number): BoardPosition[] {
   const mines: BoardPosition[] = []
   for (let i = 0; i < tiles.length; i++) {
-    if (tiles[i] === 10) {
+    if (tiles[i] === 10 || tiles[i] === 11) {
       mines.push(tileIndexToPosition(i, numRows))
     }
   }
