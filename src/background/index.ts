@@ -78,7 +78,7 @@ async function injectIntoExistingTabs(): Promise<void> {
 }
 
 // --------------------------------------------------------------------------
-// Message relay (if needed in the future)
+// Message handler
 // --------------------------------------------------------------------------
 
 browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime.MessageSender) => {

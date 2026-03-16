@@ -29,6 +29,7 @@ import {
   type StoredGameMeta,
 } from '../storage/gameStorage'
 import { createZipBlob } from '../utils/zip'
+import { formatDateForFilename } from '../utils/format'
 
 // --------------------------------------------------------------------------
 // DOM elements
@@ -514,13 +515,6 @@ function formatDate(isoString: string): string {
   } catch {
     return 'Unknown date'
   }
-}
-
-function formatDateForFilename(): string {
-  return new Date().toISOString()
-    .replace(/[-:T]/g, '')
-    .replace(/\.\d+Z$/, '')
-    .replace(/(\d{8})(\d{6})/, '$1_$2')
 }
 
 function capitalize(str: string): string {

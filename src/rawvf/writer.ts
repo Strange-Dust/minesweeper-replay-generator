@@ -16,6 +16,7 @@ import type {
   RecordedMouseEvent,
   LevelName,
 } from '../types/rawvf'
+import { formatDateForFilename } from '../utils/format'
 
 // ============================================================================
 // Public API
@@ -232,21 +233,4 @@ function getLevelName(cols: number, rows: number, mines: number): LevelName {
   if (cols === 16 && rows === 16 && mines === 40) return 'Intermediate'
   if (cols === 30 && rows === 16 && mines === 99) return 'Expert'
   return 'Custom'
-}
-
-/**
- * Format a date string for use in filenames.
- * Returns "YYYYMMDD_HHMMSS" or "unknown" if no timestamp.
- */
-function formatDateForFilename(timestamp?: string): string {
-  if (!timestamp) {
-    const now = new Date()
-    return now.toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, '').replace(/(\d{8})(\d{6})/, '$1_$2')
-  }
-  try {
-    const date = new Date(timestamp)
-    return date.toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, '').replace(/(\d{8})(\d{6})/, '$1_$2')
-  } catch {
-    return 'unknown'
-  }
 }

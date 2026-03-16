@@ -111,6 +111,38 @@ let navigationMonitorInterval: ReturnType<typeof setInterval> | null = null
 let settingsBridgeAdapter: SiteAdapter | null = null
 
 // --------------------------------------------------------------------------
+// Adapter watcher helpers
+// --------------------------------------------------------------------------
+
+/**
+ * Cancel all adapter DOM watchers (board reset, board change, game end).
+ * Extracted because this exact sequence appears in 4+ places.
+ */
+function cancelAllWatchers(adapter: SiteAdapter | null): void {
+  adapter?.cancelBoardReset?.()
+  adapter?.cancelBoardChange?.()
+  adapter?.cancelGameEnd?.()
+}
+
+/**
+ * Abort the current recorder, saving the recording if it was in progress.
+ * Returns true if a recorder was active. Sets recorder to null.
+ */
+function abortAndSaveRecorder(): boolean {
+  if (!recorder) return false
+  const state = recorder.getState()
+  if (state === 'recording') {
+    recorder.abort()
+    const data = recorder.getRecordingData()
+    if (data) saveRecordingData(data)
+  } else {
+    recorder.abort()
+  }
+  recorder = null
+  return true
+}
+
+// --------------------------------------------------------------------------
 // Extension context validity
 // --------------------------------------------------------------------------
 
@@ -143,9 +175,7 @@ function teardownOnInvalidContext(): void {
     clearInterval(navigationMonitorInterval)
     navigationMonitorInterval = null
   }
-  currentAdapter?.cancelBoardReset?.()
-  currentAdapter?.cancelBoardChange?.()
-  currentAdapter?.cancelGameEnd?.()
+  cancelAllWatchers(currentAdapter)
   settingsBridgeAdapter?.destroySettingsBridge?.()
   settingsBridgeAdapter = null
   if (recorder) {
@@ -269,31 +299,22 @@ function handleStopSession(): void {
   stopBoardPresenceMonitor()
 
   // Cancel all watchers
-  currentAdapter?.cancelBoardChange?.()
-  currentAdapter?.cancelBoardReset?.()
-  currentAdapter?.cancelGameEnd?.()
+  cancelAllWatchers(currentAdapter)
 
-  // If a game is currently in progress, abort it
-  if (recorder) {
-    const state = recorder.getState()
-    if (state === 'recording') {
-      // Game was in progress — abort and try to salvage the recording
-      recorder.abort()
-      const data = recorder.getRecordingData()
-      if (data) {
-        // Try to read mines once (best effort during manual stop)
-        if (currentAdapter) {
-          const mines = currentAdapter.getMinePositions?.('unknown') ?? []
-          if (mines.length > 0) data.minePositions = mines
-        }
-        saveRecordingData(data)
-      }
-    } else if (state === 'ready') {
-      // Game hadn't started yet — just clean up
-      recorder.abort()
+  // If a game is currently in progress, abort it and try to salvage
+  if (recorder && recorder.getState() === 'recording') {
+    recorder.abort()
+    const data = recorder.getRecordingData()
+    if (data) {
+      // Try to read mines once (best effort during manual stop)
+      const mines = currentAdapter?.getMinePositions?.('unknown') ?? []
+      if (mines.length > 0) data.minePositions = mines
+      saveRecordingData(data)
     }
-    recorder = null
+  } else if (recorder) {
+    recorder.abort()
   }
+  recorder = null
 
   currentState = 'idle'
 }
@@ -333,56 +354,45 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
       !document.contains(lastKnownBoardElement)
 
     if (elementReplaced) {
-      mlog('Board presence: element replaced (difficulty change or page update)')
-      lastKnownBoardElement = currentBoardElement
-
-      // Clean up everything attached to the old DOM nodes
-      if (recorder) {
-        recorder.abort()
-        recorder = null
-      }
-      adapter.cancelBoardReset?.()
-      adapter.cancelBoardChange?.()
-      adapter.cancelGameEnd?.()
-
-      // Re-establish on new DOM
-      setupBoardChangeWatcher(adapter)
-      startNextGame(adapter)
-      return
-    }
-
-    if (!hasBoard && hadBoard) {
-      // Board disappeared — user navigated away from the game page.
-      mlog('Board presence: board disappeared (SPA navigation away from game)')
-      lastKnownBoardElement = null
-
-      if (recorder) {
-        const recState = recorder.getState()
-        mlog('Board presence: aborting recorder in state', recState)
-        if (recState === 'recording') {
-          recorder.abort()
-          const data = recorder.getRecordingData()
-          if (data) saveRecordingData(data)
-        } else {
-          recorder.abort()
-        }
-        recorder = null
-      }
-      adapter.cancelBoardReset?.()
-      adapter.cancelBoardChange?.()
-      adapter.cancelGameEnd?.()
-
-      currentState = 'ready'
-
+      handleBoardElementReplaced(adapter, currentBoardElement!)
+    } else if (!hasBoard && hadBoard) {
+      handleBoardDisappeared(adapter)
     } else if (hasBoard && !hadBoard) {
-      // Board appeared — user navigated back to the game page.
-      mlog('Board presence: board appeared (SPA navigation to game)')
-      lastKnownBoardElement = currentBoardElement
-
-      setupBoardChangeWatcher(adapter)
-      startNextGame(adapter)
+      handleBoardAppeared(adapter, currentBoardElement!)
     }
   }, intervalMS)
+}
+
+/** Board element replaced (difficulty change or DOM rebuild). */
+function handleBoardElementReplaced(adapter: SiteAdapter, newElement: HTMLElement): void {
+  mlog('Board presence: element replaced (difficulty change or page update)')
+  lastKnownBoardElement = newElement
+
+  if (recorder) { recorder.abort(); recorder = null }
+  cancelAllWatchers(adapter)
+
+  setupBoardChangeWatcher(adapter)
+  startNextGame(adapter)
+}
+
+/** Board disappeared — user navigated away from the game page. */
+function handleBoardDisappeared(adapter: SiteAdapter): void {
+  mlog('Board presence: board disappeared (SPA navigation away from game)')
+  lastKnownBoardElement = null
+
+  abortAndSaveRecorder()
+  cancelAllWatchers(adapter)
+
+  currentState = 'ready'
+}
+
+/** Board appeared — user navigated back to the game page. */
+function handleBoardAppeared(adapter: SiteAdapter, element: HTMLElement): void {
+  mlog('Board presence: board appeared (SPA navigation to game)')
+  lastKnownBoardElement = element
+
+  setupBoardChangeWatcher(adapter)
+  startNextGame(adapter)
 }
 
 function stopBoardPresenceMonitor(): void {
@@ -750,22 +760,8 @@ function handleNavigationDuringSession(adapter: SiteAdapter): void {
   // --- Board element changed or disappeared → full teardown and re-init ---
   mlog('Navigation handler: board element changed or gone → full re-init')
 
-  if (recorder) {
-    const recState = recorder.getState()
-    if (recState === 'recording') {
-      recorder.abort()
-      const data = recorder.getRecordingData()
-      if (data) saveRecordingData(data)
-    } else {
-      recorder.abort()
-    }
-    recorder = null
-  }
-
-  // Cancel all DOM observers — they may be zombies after SPA navigation
-  adapter.cancelBoardReset?.()
-  adapter.cancelBoardChange?.()
-  adapter.cancelGameEnd?.()
+  abortAndSaveRecorder()
+  cancelAllWatchers(adapter)
 
   // Mark board as unknown so the board presence monitor doesn't race us
   lastKnownBoardElement = null
