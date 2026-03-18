@@ -400,9 +400,13 @@ export class MouseTracker {
   private emitEvent(code: MouseEventCode, domEvent: MouseEvent): void {
     const boardRect = this.boardElement.getBoundingClientRect()
 
-    // Compute pixel position relative to the board top-left
-    const x = Math.round(domEvent.clientX - boardRect.left)
-    const y = Math.round(domEvent.clientY - boardRect.top)
+    // Compute pixel position relative to the board top-left.
+    // Use Math.floor: pixel N covers the half-open interval [N, N+1),
+    // and getBoundingClientRect() returns subpixel values that differ
+    // between browsers (Firefox vs Chrome). Floor ensures consistent
+    // coordinates across engines.
+    const x = Math.floor(domEvent.clientX - boardRect.left)
+    const y = Math.floor(domEvent.clientY - boardRect.top)
 
     // Compute elapsed time since game start using DOM event timestamps.
     // domEvent.timeStamp is a DOMHighResTimeStamp on the same time origin
@@ -429,8 +433,8 @@ export class MouseTracker {
    */
   private updateMousePosition(domEvent: MouseEvent): void {
     const boardRect = this.boardElement.getBoundingClientRect()
-    this.lastMouseX = Math.round(domEvent.clientX - boardRect.left)
-    this.lastMouseY = Math.round(domEvent.clientY - boardRect.top)
+    this.lastMouseX = Math.floor(domEvent.clientX - boardRect.left)
+    this.lastMouseY = Math.floor(domEvent.clientY - boardRect.top)
   }
 
   /**
