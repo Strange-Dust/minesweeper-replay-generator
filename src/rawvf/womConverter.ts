@@ -90,6 +90,16 @@ const WOM_STATE_WON = 3
 const WOM_STATE_LOST = 4
 
 // ============================================================================
+// Simulated mouse movement tuning constants
+// ============================================================================
+
+/** How long before a click the mouse starts moving toward it (ms). */
+const MOVE_LEAD_TIME_MS = 500
+
+/** Interval between simulated mouse move events (ms). */
+const MOVE_STEP_INTERVAL_MS = 15
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -123,8 +133,9 @@ export function convertWomReplay(data: unknown): WomConversionResult {
   // Determine chording mode from clickType metadata
   const chordingMode = resolveChordingMode(gameMeta.clickType)
 
-  // Convert WoM clicks to RAWVF mouse events
-  const events = convertClicks(clicks, DEFAULT_SQUARE_SIZE, chordingMode)
+  // Convert WoM clicks to RAWVF mouse events, then add simulated movement
+  const clickEvents = convertClicks(clicks, DEFAULT_SQUARE_SIZE, chordingMode)
+  const events = generateMouseMovement(clickEvents)
 
   // Determine game result
   const result = resolveGameResult(gameMeta.state)
@@ -384,4 +395,96 @@ function makeEvent(
   y: number,
 ): RecordedMouseEvent {
   return { type: 'mouse', timeMs, event, x, y, rawTimestamp: 0 }
+}
+
+// ============================================================================
+// Simulated mouse movement
+//
+// WoM data only has click positions and times — no mouse movement.
+// To produce a more natural-looking replay, we synthesize straight-line
+// mouse movement between clicks. Movement ends when the click lands and
+// begins MOVE_LEAD_TIME_MS before it (or immediately after the previous
+// click if the gap is shorter).
+// ============================================================================
+
+/**
+ * Insert simulated mouse movement ('mv') events between click groups.
+ *
+ * Click groups are sequences of events sharing the same timestamp
+ * (e.g. lc+lr for a left click, or lc+rc+rr+lr for a chord).
+ * Between each pair of consecutive groups, a straight-line movement
+ * is generated from the previous click position to the next.
+ */
+function generateMouseMovement(events: RecordedMouseEvent[]): RecordedMouseEvent[] {
+  // Split events into groups by timestamp
+  const groups = groupByTimestamp(events)
+  if (groups.length <= 1) return events
+
+  const result: RecordedMouseEvent[] = []
+
+  // Emit first group as-is
+  result.push(...groups[0])
+
+  for (let i = 1; i < groups.length; i++) {
+    const prevGroup = groups[i - 1]
+    const currGroup = groups[i]
+
+    const fromX = prevGroup[0].x
+    const fromY = prevGroup[0].y
+    const toX = currGroup[0].x
+    const toY = currGroup[0].y
+
+    const prevTime = prevGroup[0].timeMs
+    const clickTime = currGroup[0].timeMs
+    const gap = clickTime - prevTime
+
+    // Movement starts MOVE_LEAD_TIME_MS before the click,
+    // but no earlier than immediately after the previous click
+    const moveDuration = Math.min(MOVE_LEAD_TIME_MS, gap)
+    const moveStart = clickTime - moveDuration
+
+    // Only generate movement if there's a position change and enough time for at least one step
+    if ((fromX !== toX || fromY !== toY) && moveDuration >= MOVE_STEP_INTERVAL_MS) {
+      const numSteps = Math.floor(moveDuration / MOVE_STEP_INTERVAL_MS)
+
+      for (let step = 1; step <= numSteps; step++) {
+        const t = step / numSteps // 0..1 progress
+        const mx = Math.round(fromX + (toX - fromX) * t)
+        const my = Math.round(fromY + (toY - fromY) * t)
+        const mt = Math.round(moveStart + moveDuration * (step / numSteps))
+
+        // Don't emit a move event at the exact click time — the click events handle that
+        if (mt < clickTime) {
+          result.push(makeEvent(mt, 'mv', mx, my))
+        }
+      }
+    }
+
+    result.push(...currGroup)
+  }
+
+  return result
+}
+
+/**
+ * Group consecutive events that share the same timestamp.
+ * Each group represents one logical click action (press + release pair(s)).
+ */
+function groupByTimestamp(events: RecordedMouseEvent[]): RecordedMouseEvent[][] {
+  const groups: RecordedMouseEvent[][] = []
+  let current: RecordedMouseEvent[] = []
+
+  for (const event of events) {
+    if (current.length > 0 && event.timeMs !== current[0].timeMs) {
+      groups.push(current)
+      current = []
+    }
+    current.push(event)
+  }
+
+  if (current.length > 0) {
+    groups.push(current)
+  }
+
+  return groups
 }
