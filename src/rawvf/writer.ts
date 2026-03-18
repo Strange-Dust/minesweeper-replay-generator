@@ -15,6 +15,7 @@ import type {
   RecordingData,
   RecordedMouseEvent,
   LevelName,
+  GameMode,
 } from '../types/rawvf'
 import { formatDateForFilename } from '../utils/format'
 
@@ -38,7 +39,8 @@ export function generateRawvf(recording: RecordingData): string {
  * Format / Naming Convention: "YYYYMMDD_HHMMSS_<level>_<time>.rawvf"
  */
 export function generateFilename(recording: RecordingData): string {
-  const level = getLevelName(
+  const level = resolveLevelName(
+    recording.metadata.levelCode,
     recording.board.cols,
     recording.board.rows,
     recording.board.mines
@@ -83,7 +85,7 @@ function buildDescription(recording: RecordingData): string {
   }
 
   // Level
-  const level = getLevelName(board.cols, board.rows, board.mines)
+  const level = resolveLevelName(metadata.levelCode, board.cols, board.rows, board.mines)
   lines.push(`Level: ${level}`)
 
   // Board dimensions
@@ -116,7 +118,8 @@ function buildDescription(recording: RecordingData): string {
   }
 
   // Mode
-  lines.push('Mode: Classic')
+  const mode = resolveGameMode(metadata.levelCode)
+  lines.push(`Mode: ${mode}`)
 
   return lines.join('\n')
 }
@@ -226,11 +229,45 @@ function pixelToCell1Indexed(pixel: number, squareSize: number): number {
 }
 
 /**
- * Determine the standard level name from board dimensions.
+ * Resolve the level name from a WoM level code, with dimension-based fallback.
+ *
+ * Level codes:
+ *   Classic:   1=Beginner, 2=Intermediate, 3=Expert, 4=Custom
+ *   No Guess:  11=Easy, 12=Medium, 13=Hard, 14=Evil, 15=Custom
  */
-function getLevelName(cols: number, rows: number, mines: number): LevelName {
+function resolveLevelName(
+  levelCode: number | undefined,
+  cols: number, rows: number, mines: number
+): LevelName {
+  if (levelCode != null) {
+    const name = LEVEL_CODE_TO_NAME[levelCode]
+    if (name) return name
+  }
+  // Fallback: infer from board dimensions
   if (cols === 8 && rows === 8 && mines === 10) return 'Beginner'
   if (cols === 16 && rows === 16 && mines === 40) return 'Intermediate'
   if (cols === 30 && rows === 16 && mines === 99) return 'Expert'
   return 'Custom'
+}
+
+/**
+ * Resolve the game mode from a WoM level code.
+ * Codes 11-15 are No Guess mode; everything else is Classic.
+ */
+function resolveGameMode(levelCode: number | undefined): GameMode {
+  if (levelCode != null && levelCode >= 11 && levelCode <= 15) return 'No Guess'
+  return 'Classic'
+}
+
+/** Mapping from WoM level code to level name. */
+const LEVEL_CODE_TO_NAME: Record<number, LevelName> = {
+  1: 'Beginner',
+  2: 'Intermediate',
+  3: 'Expert',
+  4: 'Custom',
+  11: 'Easy',
+  12: 'Medium',
+  13: 'Hard',
+  14: 'Evil',
+  15: 'Custom',
 }

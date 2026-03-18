@@ -462,6 +462,12 @@ function setupGameEndHandler(adapter: SiteAdapter): void {
 
       const finishedData = recorder.finishAndReset(result, buildReplayMetadata())
 
+      // Update the finished game's URL now — at game end the SPA URL
+      // reflects the just-finished game, not the next one.
+      if (finishedData) {
+        finishedData.metadata.url = adapter.getGameURL?.() ?? finishedData.metadata.url
+      }
+
       currentState = 'ready'
 
       // Re-register game-end detection for the next game immediately.
@@ -609,6 +615,12 @@ function readMinesAndSave(
  * when enabled, but the session game count still increments.
  */
 async function saveRecordingData(data: RecordingData): Promise<void> {
+  // Discard 0-duration replays (resets, page loads, etc.)
+  if (data.totalTimeMs <= 0) {
+    mlog('Skipping save: 0-duration replay')
+    return
+  }
+
   // Check "Only save wins" preference
   let prefs: Record<string, unknown>
   try {
@@ -642,6 +654,7 @@ async function saveRecordingData(data: RecordingData): Promise<void> {
     mines: data.board.mines,
     result: data.result,
     timeMs: data.totalTimeMs,
+    levelCode: data.metadata.levelCode,
   }, rawvf).catch(err => merr('Failed to save replay:', err))
 }
 
@@ -670,6 +683,7 @@ function buildReplayMetadata(): ReplayMetadata {
     timestamp: new Date().toISOString(),
     questionMarks: false,
     chordingMode: currentSettings?.chording,
+    levelCode: currentAdapter?.getGameLevel?.() ?? undefined,
   }
 }
 
@@ -962,8 +976,12 @@ function handleWomReplayData(data: unknown): { success: boolean; error?: string;
   try {
     const { recording, gameId } = convertWomReplay(data)
 
-    // Use player name from popup override, or adapter-detected name
-    recording.metadata.player = getEffectivePlayerName()
+    // Use player name from popup override or adapter-detected name,
+    // but keep the userId from the converter if neither is available
+    const effectivePlayer = getEffectivePlayerName()
+    if (effectivePlayer) {
+      recording.metadata.player = effectivePlayer
+    }
 
     const rawvf = generateRawvf(recording)
     const filename = generateFilename(recording)
@@ -979,6 +997,7 @@ function handleWomReplayData(data: unknown): { success: boolean; error?: string;
       mines: recording.board.mines,
       result: recording.result,
       timeMs: recording.totalTimeMs,
+      levelCode: recording.metadata.levelCode,
     }, rawvf).catch(err => merr('Failed to save converted replay:', err))
 
     return { success: true, gameId }

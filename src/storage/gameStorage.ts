@@ -55,6 +55,8 @@ export interface StoredGameMeta {
   timeMs: number
   /** RAWVF content size in bytes */
   sizeBytes: number
+  /** WoM level code (optional, for display) */
+  levelCode?: number
 }
 
 // ============================================================================

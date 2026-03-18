@@ -93,6 +93,12 @@ export type GameResult = 'won' | 'lost' | 'unknown'
  * Standard level names determined by board dimensions.
  */
 export type LevelName = 'Beginner' | 'Intermediate' | 'Expert' | 'Custom'
+  | 'Easy' | 'Medium' | 'Hard' | 'Evil'
+
+/**
+ * Game mode: Classic or No Guess.
+ */
+export type GameMode = 'Classic' | 'No Guess'
 
 /**
  * Metadata for the RAWVF description header.
@@ -112,6 +118,12 @@ export interface ReplayMetadata {
   questionMarks: boolean
   /** Chording mode used during the game (for SuperClick field) */
   chordingMode?: ChordingMode
+  /**
+   * WoM level code (optional). Used to determine level name and game mode.
+   * Classic: 1=Beginner, 2=Intermediate, 3=Expert, 4=Custom
+   * No Guess: 11=Easy, 12=Medium, 13=Hard, 14=Evil, 15=Custom
+   */
+  levelCode?: number
 }
 
 // ============================================================================

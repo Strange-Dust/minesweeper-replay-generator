@@ -87,7 +87,7 @@ const DEFAULT_SQUARE_SIZE = 16
 
 /** WoM game state values. */
 const WOM_STATE_WON = 3
-const WOM_STATE_LOST = 4
+const WOM_STATE_LOST = 2
 
 // ============================================================================
 // Simulated mouse movement tuning constants
@@ -159,6 +159,7 @@ export function convertWomReplay(data: unknown): WomConversionResult {
       questionMarks: false,
       chordingMode,
       url: `https://minesweeper.online/game/${gameMeta.id}`,
+      levelCode: gameMeta.level,
     },
     result,
     totalTimeMs,

@@ -270,7 +270,7 @@ function renderGameList(): void {
 
   gameListEl.innerHTML = sorted.map(game => {
     const checked = selectedIds.has(game.id) ? 'checked' : ''
-    const level = getLevelDisplay(game.cols, game.rows, game.mines)
+    const level = getLevelDisplay(game.cols, game.rows, game.mines, game.levelCode)
     const result = formatResult(game.result)
     const time = formatGameTime(game.timeMs)
     const size = formatSize(game.sizeBytes)
@@ -280,8 +280,8 @@ function renderGameList(): void {
       <input type="checkbox" ${checked} />
       <div class="game-details">
         <div class="game-row-main">
-          <span class="game-level">${level}</span>
           <span class="game-result ${game.result}">${result}</span>
+          <span class="game-level">${level}</span>
           <span class="game-time">${time}</span>
           <span class="game-size">${size}</span>
         </div>
@@ -484,7 +484,16 @@ function updateActionButtons(): void {
 // Formatting utilities
 // --------------------------------------------------------------------------
 
-function getLevelDisplay(cols: number, rows: number, mines: number): string {
+const LEVEL_CODE_DISPLAY: Record<number, string> = {
+  1: 'Beginner', 2: 'Intermediate', 3: 'Expert', 4: 'Custom',
+  11: 'Easy', 12: 'Medium', 13: 'Hard', 14: 'Evil', 15: 'Custom',
+}
+
+function getLevelDisplay(cols: number, rows: number, mines: number, levelCode?: number): string {
+  if (levelCode != null) {
+    const name = LEVEL_CODE_DISPLAY[levelCode]
+    if (name) return name
+  }
   if (cols === 8 && rows === 8 && mines === 10) return 'Beg'
   if (cols === 16 && rows === 16 && mines === 40) return 'Int'
   if (cols === 30 && rows === 16 && mines === 99) return 'Exp'

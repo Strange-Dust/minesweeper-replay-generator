@@ -127,6 +127,12 @@ export interface SiteAdapter {
    */
   cancelBoardChange?(): void
 
+  /**
+   * Get the current game's level code from the site UI.
+   * Returns the WoM level number (1-4 classic, 11-15 no-guess) or null.
+   */
+  getGameLevel?(): number | null
+
   // --------------------------------------------------------------------------
   // Settings detection
   // --------------------------------------------------------------------------

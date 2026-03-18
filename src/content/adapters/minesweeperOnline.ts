@@ -283,6 +283,19 @@ export function createMinesweeperOnlineAdapter(): SiteAdapter {
       return null
     },
 
+    getGameLevel() {
+      // The active level link in #levels_full has class "active".
+      // Its id is "level_select_{N}" where N is the level code.
+      // Classic: 1=Beginner, 2=Intermediate, 3=Expert, 4=Custom
+      // No Guess: 11=Easy, 12=Medium, 13=Hard, 14=Evil, 15=Custom
+      const activeLink = document.querySelector('#levels_full .level-select-link.active')
+      if (!activeLink) return null
+      const id = activeLink.id // e.g. "level_select_3"
+      const match = id.match(/^level_select_(\d+)$/)
+      if (!match) return null
+      return parseInt(match[1], 10)
+    },
+
     findBoardElement() {
       return document.getElementById('AreaBlock')
     },
