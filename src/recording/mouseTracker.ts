@@ -17,6 +17,17 @@ import type { RecordedMouseEvent, MouseEventCode } from '../types/rawvf'
 import type { KeyboardMouseConfig } from '../types/settings'
 
 /**
+ * Firefox and Chrome return different subpixel values from
+ * getBoundingClientRect(), causing a consistent ~1px offset when the
+ * same rounding function is used in both browsers.
+ *   - Math.round: correct in Chrome, off by +1 in Firefox
+ *   - Math.floor: correct in Firefox, off by -1 in Chrome
+ * Detect once at module load and pick the right function.
+ */
+const pixelRound: (n: number) => number =
+  navigator.userAgent.includes('Firefox') ? Math.floor : Math.round
+
+/**
  * Callback invoked when a mouse event is captured.
  */
 export type MouseEventCallback = (event: RecordedMouseEvent) => void
@@ -401,12 +412,10 @@ export class MouseTracker {
     const boardRect = this.boardElement.getBoundingClientRect()
 
     // Compute pixel position relative to the board top-left.
-    // Use Math.floor: pixel N covers the half-open interval [N, N+1),
-    // and getBoundingClientRect() returns subpixel values that differ
-    // between browsers (Firefox vs Chrome). Floor ensures consistent
-    // coordinates across engines.
-    const x = Math.floor(domEvent.clientX - boardRect.left)
-    const y = Math.floor(domEvent.clientY - boardRect.top)
+    // Uses pixelRound (floor on Firefox, round on Chrome) to handle
+    // subpixel differences between browser layout engines.
+    const x = pixelRound(domEvent.clientX - boardRect.left)
+    const y = pixelRound(domEvent.clientY - boardRect.top)
 
     // Compute elapsed time since game start using DOM event timestamps.
     // domEvent.timeStamp is a DOMHighResTimeStamp on the same time origin
@@ -433,8 +442,8 @@ export class MouseTracker {
    */
   private updateMousePosition(domEvent: MouseEvent): void {
     const boardRect = this.boardElement.getBoundingClientRect()
-    this.lastMouseX = Math.floor(domEvent.clientX - boardRect.left)
-    this.lastMouseY = Math.floor(domEvent.clientY - boardRect.top)
+    this.lastMouseX = pixelRound(domEvent.clientX - boardRect.left)
+    this.lastMouseY = pixelRound(domEvent.clientY - boardRect.top)
   }
 
   /**
