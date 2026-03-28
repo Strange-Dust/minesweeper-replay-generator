@@ -11,6 +11,7 @@
  */
 
 import browser from '../utils/browser'
+import { minfo } from '../utils/log'
 import type { GameSettings, StoredSettings } from '../types/settings'
 import { DEFAULT_SETTINGS } from '../types/settings'
 
@@ -52,6 +53,7 @@ export async function saveAutoDetectedSettings(settings: GameSettings): Promise<
     lastUpdated: new Date().toISOString(),
   }
   await browser.storage.local.set({ [SETTINGS_KEY]: stored })
+  minfo('Auto-detected settings saved:', settings.chording, '| keyboard:', settings.keyboardMouse.enabled)
 }
 
 /**
@@ -67,6 +69,7 @@ export async function saveManualSettings(settings: GameSettings): Promise<void> 
     lastUpdated: new Date().toISOString(),
   }
   await browser.storage.local.set({ [SETTINGS_KEY]: stored })
+  minfo('Manual settings saved:', settings.chording, '| keyboard:', settings.keyboardMouse.enabled)
 }
 
 /**
@@ -80,6 +83,7 @@ export async function clearManualOverride(): Promise<void> {
     lastUpdated: new Date().toISOString(),
   }
   await browser.storage.local.set({ [SETTINGS_KEY]: stored })
+  minfo('Manual override disabled, reverting to auto-detected settings')
 }
 
 /**

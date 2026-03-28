@@ -12,7 +12,7 @@
  */
 
 import browser from '../utils/browser'
-import { mlog, mwarn } from '../utils/log'
+import { mlog, minfo, mwarn } from '../utils/log'
 import {
   initWebSocketCapture,
   isWebSocketCaptureSupported,
@@ -120,7 +120,6 @@ browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime
   }
 
   if (msg.type === 'SEND_TO_ANALYZER') {
-    mlog('Received SEND_TO_ANALYZER message')
     const { rawvf, filename, analyzerUrl } = message as {
       type: string; rawvf: string; filename: string; analyzerUrl: string
     }
@@ -175,7 +174,6 @@ async function handleSendToAnalyzer(
   analyzerUrl: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    mlog('handleSendToAnalyzer:', filename, '(' + rawvf.length + ' chars)', 'url:', analyzerUrl)
     // Look for an existing analyzer tab
     const tabs = await browser.tabs.query({ url: analyzerUrl + '*' })
     mlog('Existing analyzer tabs found:', tabs.length)
@@ -201,6 +199,7 @@ async function handleSendToAnalyzer(
       args: [rawvf, filename],
     })
 
+    minfo('Sent replay to analyzer:', filename)
     return { success: true }
   } catch (err) {
     mwarn('Send to analyzer failed:', err)

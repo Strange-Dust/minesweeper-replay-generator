@@ -10,7 +10,7 @@
  */
 
 import browser from '../utils/browser'
-import { merr } from '../utils/log'
+import { merr, minfo } from '../utils/log'
 import type { StatusResponse, WsCaptureStatusResponse, ParseWsReplayResponse } from '../types/messages'
 import type { GameSettings, ChordingMode } from '../types/settings'
 import { DEFAULT_SETTINGS } from '../types/settings'
@@ -393,12 +393,15 @@ async function downloadSelected(): Promise<void> {
     const game = contents[0]!
     const blob = new Blob([game.rawvf], { type: 'text/plain' })
     triggerDownload(blob, game.filename)
+    minfo('Downloaded replay:', game.filename)
   } else {
     const zipBlob = createZipBlob(
       contents.map(g => ({ filename: g.filename, content: g.rawvf }))
     )
     const dateStr = formatDateForFilename()
-    triggerDownload(zipBlob, `minesweeper_replays_${dateStr}.zip`)
+    const zipName = `minesweeper_replays_${dateStr}.zip`
+    triggerDownload(zipBlob, zipName)
+    minfo(`Downloaded ${contents.length} replays as ${zipName}`)
   }
 }
 
@@ -407,18 +410,15 @@ function onAnalyzeClick(e: Event): void {
   e.stopPropagation()
   const btn = e.currentTarget as HTMLButtonElement
   const id = btn.dataset.id
-  console.log('[Popup] Analyze button clicked, gameId:', id)
   if (id) sendToAnalyzer(id)
 }
 
 async function sendToAnalyzer(gameId: string): Promise<void> {
-  console.log('[Popup] sendToAnalyzer:', gameId)
   const contents = await getGamesContent([gameId], games)
-  console.log('[Popup] Loaded game content, count:', contents.length)
   if (contents.length === 0) return
 
   const { rawvf, filename } = contents[0]!
-  console.log('[Popup] Sending to background:', filename, '(' + rawvf.length + ' chars)')
+  minfo('Sending to analyzer:', filename)
 
   // Send to background for tab management and script injection
   sendToBackground({
@@ -426,10 +426,8 @@ async function sendToAnalyzer(gameId: string): Promise<void> {
     rawvf,
     filename,
     analyzerUrl: ANALYZER_URL,
-  }).then(resp => {
-    console.log('[Popup] Background response:', resp)
-  }).catch(err => {
-    console.log('[Popup] Background send error (may be expected if popup closed):', err)
+  }).catch(() => {
+    // Popup may close if a new tab is opened — that's OK
   })
 }
 
@@ -444,6 +442,7 @@ async function deleteSelected(): Promise<void> {
   if (!confirmed) return
 
   await deleteGames([...selectedIds])
+  minfo(`Deleted ${count} replay(s)`)
   selectedIds.clear()
   await refreshGameList()
 }
@@ -457,6 +456,7 @@ async function clearAll(): Promise<void> {
   if (!confirmed) return
 
   await clearAllGames()
+  minfo('Cleared all replays')
   selectedIds.clear()
   await refreshGameList()
 }
@@ -845,6 +845,7 @@ async function convertPaste(): Promise<void> {
   if (response.success) {
     convertStatus.textContent = `Saved! Game #${response.gameId ?? 'unknown'}`
     convertStatus.className = 'converter-status success'
+    minfo('Converted WoM replay, game #' + (response.gameId ?? 'unknown'))
     pasteInput.value = ''
     btnConvert.disabled = true
     await refreshGameList()

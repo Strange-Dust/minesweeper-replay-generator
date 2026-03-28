@@ -15,6 +15,9 @@ const PREFIX = '[MSR'
 export const mlog = (...args: unknown[]) =>
   console.debug(`${PREFIX} ${timestamp()}]`, ...args)
 
+export const minfo = (...args: unknown[]) =>
+  console.info(`${PREFIX} ${timestamp()}]`, ...args)
+
 export const mwarn = (...args: unknown[]) =>
   console.warn(`${PREFIX} ${timestamp()}]`, ...args)
 

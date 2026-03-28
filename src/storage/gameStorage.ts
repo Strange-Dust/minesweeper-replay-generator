@@ -16,6 +16,7 @@
  */
 
 import browser from '../utils/browser'
+import { minfo } from '../utils/log'
 import type { GameResult } from '../types/rawvf'
 
 // ============================================================================
@@ -98,7 +99,10 @@ export async function saveGame(
     await browser.storage.local.remove(
       evictIds.map(eid => `${CONTENT_KEY_PREFIX}${eid}`)
     )
+    minfo(`Evicted ${evictIds.length} old replay(s) to stay within storage budget`)
   }
+
+  minfo(`Replay saved: ${meta.filename} (${(sizeBytes / 1024).toFixed(1)} KB, ${allMeta.length} total)`)
 }
 
 /**
@@ -147,6 +151,7 @@ export async function deleteGames(ids: string[]): Promise<void> {
   await browser.storage.local.remove(
     ids.map(id => `${CONTENT_KEY_PREFIX}${id}`)
   )
+  minfo(`Deleted ${ids.length} replay(s), ${remaining.length} remaining`)
 }
 
 /**
@@ -156,6 +161,7 @@ export async function clearAllGames(): Promise<void> {
   const allMeta = await loadMeta()
   const contentKeys = allMeta.map(g => `${CONTENT_KEY_PREFIX}${g.id}`)
   await browser.storage.local.remove([META_KEY, ...contentKeys])
+  minfo(`Cleared all replays (${allMeta.length} removed)`)
 }
 
 // ============================================================================
