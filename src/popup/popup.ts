@@ -32,6 +32,12 @@ import { createZipBlob } from '../utils/zip'
 import { formatDateForFilename } from '../utils/format'
 
 // --------------------------------------------------------------------------
+// Analyzer URL — update this AND manifest.json host_permissions to match
+// --------------------------------------------------------------------------
+
+const ANALYZER_URL = 'http://localhost:5173/minesweeper-replay-analyzer/'
+
+// --------------------------------------------------------------------------
 // DOM elements
 // --------------------------------------------------------------------------
 
@@ -276,7 +282,7 @@ function renderGameList(): void {
     const size = formatSize(game.sizeBytes)
     const date = formatDate(game.timestamp)
 
-    return `<label class="game-item" data-id="${escapeAttr(game.id)}">
+    return `<div class="game-item" data-id="${escapeAttr(game.id)}">
       <input type="checkbox" ${checked} />
       <div class="game-details">
         <div class="game-row-main">
@@ -287,12 +293,28 @@ function renderGameList(): void {
         </div>
         <div class="game-row-date">${date}</div>
       </div>
-    </label>`
+      <button class="btn-analyze" data-id="${escapeAttr(game.id)}" title="Send to Analyzer">📊</button>
+    </div>`
   }).join('')
+
+  // Clicking anywhere on the row (except the analyze button) toggles the checkbox
+  gameListEl.querySelectorAll<HTMLElement>('.game-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.btn-analyze')) return
+      const cb = item.querySelector('input[type="checkbox"]') as HTMLInputElement | null
+      if (cb && e.target !== cb) cb.checked = !cb.checked
+      cb?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  })
 
   // Attach checkbox listeners
   gameListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', onItemCheckboxChange)
+  })
+
+  // Attach analyze button listeners
+  gameListEl.querySelectorAll<HTMLButtonElement>('.btn-analyze').forEach(btn => {
+    btn.addEventListener('click', onAnalyzeClick)
   })
 }
 
@@ -378,6 +400,37 @@ async function downloadSelected(): Promise<void> {
     const dateStr = formatDateForFilename()
     triggerDownload(zipBlob, `minesweeper_replays_${dateStr}.zip`)
   }
+}
+
+function onAnalyzeClick(e: Event): void {
+  e.preventDefault()
+  e.stopPropagation()
+  const btn = e.currentTarget as HTMLButtonElement
+  const id = btn.dataset.id
+  console.log('[Popup] Analyze button clicked, gameId:', id)
+  if (id) sendToAnalyzer(id)
+}
+
+async function sendToAnalyzer(gameId: string): Promise<void> {
+  console.log('[Popup] sendToAnalyzer:', gameId)
+  const contents = await getGamesContent([gameId], games)
+  console.log('[Popup] Loaded game content, count:', contents.length)
+  if (contents.length === 0) return
+
+  const { rawvf, filename } = contents[0]!
+  console.log('[Popup] Sending to background:', filename, '(' + rawvf.length + ' chars)')
+
+  // Send to background for tab management and script injection
+  sendToBackground({
+    type: 'SEND_TO_ANALYZER',
+    rawvf,
+    filename,
+    analyzerUrl: ANALYZER_URL,
+  }).then(resp => {
+    console.log('[Popup] Background response:', resp)
+  }).catch(err => {
+    console.log('[Popup] Background send error (may be expected if popup closed):', err)
+  })
 }
 
 async function deleteSelected(): Promise<void> {

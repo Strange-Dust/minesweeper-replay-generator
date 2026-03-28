@@ -118,6 +118,14 @@ browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime
     }
     return Promise.resolve(response)
   }
+
+  if (msg.type === 'SEND_TO_ANALYZER') {
+    mlog('Received SEND_TO_ANALYZER message')
+    const { rawvf, filename, analyzerUrl } = message as {
+      type: string; rawvf: string; filename: string; analyzerUrl: string
+    }
+    return handleSendToAnalyzer(rawvf, filename, analyzerUrl)
+  }
 })
 
 // --------------------------------------------------------------------------
@@ -155,6 +163,112 @@ function updateBadge(state: string, tabId?: number): void {
 
   browser.action.setBadgeText({ text: config.text, tabId })
   browser.action.setBadgeBackgroundColor({ color: config.color, tabId })
+}
+
+// --------------------------------------------------------------------------
+// Send to Analyzer
+// --------------------------------------------------------------------------
+
+async function handleSendToAnalyzer(
+  rawvf: string,
+  filename: string,
+  analyzerUrl: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    mlog('handleSendToAnalyzer:', filename, '(' + rawvf.length + ' chars)', 'url:', analyzerUrl)
+    // Look for an existing analyzer tab
+    const tabs = await browser.tabs.query({ url: analyzerUrl + '*' })
+    mlog('Existing analyzer tabs found:', tabs.length)
+    let tabId: number
+
+    if (tabs.length > 0 && tabs[0]!.id != null) {
+      tabId = tabs[0]!.id
+      await browser.tabs.update(tabId, { active: true })
+      if (tabs[0]!.windowId != null) {
+        await browser.windows.update(tabs[0]!.windowId, { focused: true })
+      }
+    } else {
+      const tab = await browser.tabs.create({ url: analyzerUrl })
+      if (!tab.id) return { success: false, error: 'Failed to create tab' }
+      tabId = tab.id
+      await waitForTabLoad(tabId)
+    }
+
+    // Inject a small script that delivers the replay via postMessage
+    await browser.scripting.executeScript({
+      target: { tabId },
+      func: injectReplayData,
+      args: [rawvf, filename],
+    })
+
+    return { success: true }
+  } catch (err) {
+    mwarn('Send to analyzer failed:', err)
+    return { success: false, error: String(err) }
+  }
+}
+
+/**
+ * Wait for a tab to reach the "complete" loaded state.
+ */
+function waitForTabLoad(tabId: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      browser.tabs.onUpdated.removeListener(listener)
+      reject(new Error('Tab load timeout'))
+    }, 30_000)
+
+    function done(): void {
+      clearTimeout(timeout)
+      browser.tabs.onUpdated.removeListener(listener)
+      resolve()
+    }
+
+    function listener(id: number, changeInfo: { status?: string }): void {
+      if (id === tabId && changeInfo.status === 'complete') done()
+    }
+
+    browser.tabs.onUpdated.addListener(listener)
+
+    // Check if already loaded (race with the listener)
+    browser.tabs.get(tabId).then(tab => {
+      if (tab.status === 'complete') done()
+    }).catch(() => {
+      clearTimeout(timeout)
+      browser.tabs.onUpdated.removeListener(listener)
+      reject(new Error('Tab not found'))
+    })
+  })
+}
+
+/**
+ * Injected into the analyzer tab via scripting.executeScript.
+ * Self-contained — no closures, only uses its parameters and browser globals.
+ */
+function injectReplayData(rawvf: string, filename: string): void {
+  const encoder = new TextEncoder()
+
+  function send(): void {
+    const buffer = encoder.encode(rawvf).buffer
+    window.postMessage({
+      type: 'replay-analyzer-load',
+      buffer,
+      filename,
+    }, '*')
+  }
+
+  // Send immediately (page may already be initialised)
+  send()
+
+  // Also respond to the ready signal (for freshly opened tabs)
+  function handler(event: MessageEvent): void {
+    if (event.data?.type === 'replay-analyzer-ready') {
+      send()
+      window.removeEventListener('message', handler)
+    }
+  }
+  window.addEventListener('message', handler)
+  setTimeout(() => window.removeEventListener('message', handler), 30_000)
 }
 
 // --------------------------------------------------------------------------

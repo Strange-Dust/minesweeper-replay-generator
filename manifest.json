@@ -11,7 +11,8 @@
     "debugger"
   ],
   "host_permissions": [
-    "https://minesweeper.online/*"
+    "https://minesweeper.online/*",
+    "http://localhost:5173/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",

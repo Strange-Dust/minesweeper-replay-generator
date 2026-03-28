@@ -92,6 +92,22 @@ export interface ParseWsReplayResponse {
 }
 
 // ============================================================================
+// Popup → Background: send replay to analyzer
+// ============================================================================
+
+export interface SendToAnalyzerMessage {
+  type: 'SEND_TO_ANALYZER'
+  rawvf: string
+  filename: string
+  analyzerUrl: string
+}
+
+export interface SendToAnalyzerResponse {
+  success: boolean
+  error?: string
+}
+
+// ============================================================================
 // Background → Popup response messages
 // ============================================================================
 
@@ -123,6 +139,7 @@ export type PopupToBackgroundMessage =
   | StartWsCaptureMessage
   | StopWsCaptureMessage
   | GetWsCaptureStatusMessage
+  | SendToAnalyzerMessage
 
 /** Messages sent from content script to background */
 export type ContentToBackgroundMessage =

@@ -290,6 +290,24 @@ body {
   margin-top: 1px;
 }
 
+.btn-analyze {
+  flex-shrink: 0;
+  align-self: center;
+  background: none;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.btn-analyze:hover {
+  opacity: 1;
+  background: #e9ecef;
+}
+
 .history-actions {
   display: flex;
   gap: 6px;
