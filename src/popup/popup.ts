@@ -35,7 +35,7 @@ import { formatDateForFilename } from '../utils/format'
 // Analyzer URL — update this AND manifest.json host_permissions to match
 // --------------------------------------------------------------------------
 
-const ANALYZER_URL = 'http://localhost:5173/minesweeper-replay-analyzer/'
+const ANALYZER_URL = 'https://strange-dust.github.io/minesweeper-replay-analyzer/'
 
 // --------------------------------------------------------------------------
 // DOM elements

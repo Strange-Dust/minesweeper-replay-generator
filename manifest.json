@@ -12,6 +12,7 @@
   ],
   "host_permissions": [
     "https://minesweeper.online/*",
+    "https://strange-dust.github.io/*",
     "http://localhost:5173/*"
   ],
   "action": {

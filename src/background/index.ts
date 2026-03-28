@@ -168,38 +168,91 @@ function updateBadge(state: string, tabId?: number): void {
 // Send to Analyzer
 // --------------------------------------------------------------------------
 
+/** Storage key for pending replay data to be picked up by the analyzer tab */
+const PENDING_REPLAY_KEY = 'pendingAnalyzerReplay'
+
+/** Track the analyzer tab so we can reuse it even if tabs.query fails */
+let analyzerTabId: number | null = null
+
 async function handleSendToAnalyzer(
   rawvf: string,
   filename: string,
   analyzerUrl: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Look for an existing analyzer tab
-    const tabs = await browser.tabs.query({ url: analyzerUrl + '*' })
-    mlog('Existing analyzer tabs found:', tabs.length)
-    let tabId: number
+    let tabId: number | null = null
+    let isNewTab = false
 
-    if (tabs.length > 0 && tabs[0]!.id != null) {
-      tabId = tabs[0]!.id
-      await browser.tabs.update(tabId, { active: true })
-      if (tabs[0]!.windowId != null) {
-        await browser.windows.update(tabs[0]!.windowId, { focused: true })
+    // 1. Check tracked tab
+    if (analyzerTabId != null) {
+      try {
+        const tab = await browser.tabs.get(analyzerTabId)
+        if (tab.url && tab.url.startsWith(analyzerUrl)) {
+          tabId = analyzerTabId
+          mlog('Send to analyzer: reusing tracked tab', tabId)
+        } else {
+          analyzerTabId = null
+        }
+      } catch {
+        analyzerTabId = null
       }
-    } else {
-      const tab = await browser.tabs.create({ url: analyzerUrl })
-      if (!tab.id) return { success: false, error: 'Failed to create tab' }
-      tabId = tab.id
-      await waitForTabLoad(tabId)
     }
 
-    // Inject a small script that delivers the replay via postMessage
-    await browser.scripting.executeScript({
-      target: { tabId },
-      func: injectReplayData,
-      args: [rawvf, filename],
-    })
+    // 2. Search all tabs by URL
+    if (tabId == null) {
+      const tabs = await browser.tabs.query({ url: analyzerUrl + '*' })
+      if (tabs.length > 0 && tabs[0]!.id != null) {
+        tabId = tabs[0]!.id
+        analyzerTabId = tabId
+        mlog('Send to analyzer: found existing tab via query', tabId)
+      }
+    }
 
-    minfo('Sent replay to analyzer:', filename)
+    // 3. Focus existing tab or create new one
+    if (tabId != null) {
+      await browser.tabs.update(tabId, { active: true })
+      try {
+        const tab = await browser.tabs.get(tabId)
+        if (tab.windowId != null) {
+          await browser.windows.update(tab.windowId, { focused: true })
+        }
+      } catch { /* window focus is best-effort */ }
+    } else {
+      isNewTab = true
+    }
+
+    // 4. Deliver the replay
+    if (isNewTab) {
+      // New tab strategy: write replay to extension storage, open the tab,
+      // then inject a delivery script (isolated world) that reads from
+      // storage and retries postMessage until the SPA picks it up.
+      await browser.storage.local.set({
+        [PENDING_REPLAY_KEY]: { rawvf, filename, timestamp: Date.now() },
+      })
+
+      const newTab = await browser.tabs.create({ url: analyzerUrl })
+      if (!newTab.id) return { success: false, error: 'Failed to create tab' }
+      tabId = newTab.id
+      analyzerTabId = tabId
+
+      await waitForTabLoad(tabId)
+
+      await browser.scripting.executeScript({
+        target: { tabId },
+        func: deliverPendingReplay,
+        args: [PENDING_REPLAY_KEY],
+      })
+    } else {
+      // Existing tab — SPA is already initialized, send directly via MAIN world
+      await browser.scripting.executeScript({
+        target: { tabId: tabId! },
+        world: 'MAIN',
+        func: sendReplayDirect,
+        args: [rawvf, filename],
+      })
+    }
+
+    minfo('Sent replay to analyzer:', filename, isNewTab ? '(new tab)' : '(existing tab)')
     return { success: true }
   } catch (err) {
     mwarn('Send to analyzer failed:', err)
@@ -209,12 +262,13 @@ async function handleSendToAnalyzer(
 
 /**
  * Wait for a tab to reach the "complete" loaded state.
+ * Resolves immediately if the tab is already loaded.
  */
 function waitForTabLoad(tabId: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       browser.tabs.onUpdated.removeListener(listener)
-      reject(new Error('Tab load timeout'))
+      reject(new Error('Tab load timeout (30s)'))
     }, 30_000)
 
     function done(): void {
@@ -241,33 +295,123 @@ function waitForTabLoad(tabId: number): Promise<void> {
 }
 
 /**
- * Injected into the analyzer tab via scripting.executeScript.
- * Self-contained — no closures, only uses its parameters and browser globals.
+ * Injected into a NEW analyzer tab via scripting.executeScript (isolated world).
+ *
+ * Reads the pending replay from extension storage, then retries posting
+ * it to the page via window.postMessage until the SPA acknowledges receipt.
+ *
+ * Runs in the isolated content script world so it has access to the
+ * extension storage API. window.postMessage crosses into the main world
+ * through the shared window object — the SPA receives it normally.
+ *
+ * Cross-browser: Firefox exposes `browser.storage` (Promise-based),
+ * Chrome exposes `chrome.storage` (callback-based). We handle both.
  */
-function injectReplayData(rawvf: string, filename: string): void {
+function deliverPendingReplay(storageKey: string): void {
+  const TAG = '[MSR Analyzer]'
+  const originalTitle = document.title
+
+  // Resolve storage API — Firefox: browser.storage, Chrome: chrome.storage
+  const storageAPI = (() => {
+    const g = globalThis as any
+    if (g.browser?.storage?.local) return g.browser.storage.local
+    if (g.chrome?.storage?.local) return g.chrome.storage.local
+    return null
+  })()
+
+  if (!storageAPI) {
+    console.warn(TAG, 'No extension storage API available')
+    return
+  }
+
+  // Normalize to Promise (Firefox returns Promises, Chrome uses callbacks)
+  function storageGet(key: string): Promise<Record<string, any>> {
+    const result = storageAPI.get(key)
+    if (result && typeof result.then === 'function') return result
+    return new Promise(resolve => storageAPI.get(key, resolve))
+  }
+
+  document.title = '[MSR] Loading replay\u2026'
+
+  storageGet(storageKey).then((result: Record<string, any>) => {
+    const pending = result[storageKey]
+    if (!pending?.rawvf || !pending?.filename) {
+      console.warn(TAG, 'No pending replay found in storage')
+      document.title = originalTitle
+      return
+    }
+
+    const { rawvf, filename } = pending as { rawvf: string; filename: string }
+    const encoder = new TextEncoder()
+    console.info(TAG, 'Delivering replay:', filename, '(' + rawvf.length + ' chars)')
+
+    // Clear from storage immediately to prevent stale data
+    storageAPI.remove(storageKey)
+
+    function send(): void {
+      window.postMessage({
+        type: 'replay-analyzer-load',
+        buffer: encoder.encode(rawvf).buffer,
+        filename,
+      }, '*')
+    }
+
+    let retryInterval: ReturnType<typeof setInterval> | null = null
+
+    function cleanup(): void {
+      window.removeEventListener('message', onMessage)
+      if (retryInterval != null) clearInterval(retryInterval)
+    }
+
+    function onMessage(event: MessageEvent): void {
+      if (event.data?.type === 'replay-analyzer-received') {
+        console.info(TAG, 'Analyzer confirmed receipt')
+        document.title = originalTitle
+        cleanup()
+      } else if (event.data?.type === 'replay-analyzer-ready') {
+        console.info(TAG, 'Analyzer ready, sending replay')
+        send()
+      }
+    }
+
+    window.addEventListener('message', onMessage)
+
+    // Retry every 500ms for up to 30s until the SPA acknowledges receipt.
+    // The tab is in the foreground (just created) so timers are not throttled.
+    send()
+    let retryCount = 0
+    const MAX_RETRIES = 60
+    retryInterval = setInterval(() => {
+      retryCount++
+      if (retryCount >= MAX_RETRIES) {
+        console.warn(TAG, 'Gave up after', MAX_RETRIES, 'retries')
+        document.title = originalTitle
+        cleanup()
+        return
+      }
+      send()
+    }, 500)
+  }).catch((err: unknown) => {
+    console.error(TAG, 'Failed to read from storage:', err)
+    document.title = originalTitle
+  })
+}
+
+/**
+ * Injected into an EXISTING analyzer tab via scripting.executeScript (main world).
+ * SPA is already initialized, so a single postMessage suffices.
+ */
+function sendReplayDirect(rawvf: string, filename: string): void {
+  const TAG = '[MSR Analyzer]'
   const encoder = new TextEncoder()
 
-  function send(): void {
-    const buffer = encoder.encode(rawvf).buffer
-    window.postMessage({
-      type: 'replay-analyzer-load',
-      buffer,
-      filename,
-    }, '*')
-  }
+  console.info(TAG, 'Sending replay:', filename, '(' + rawvf.length + ' chars)')
 
-  // Send immediately (page may already be initialised)
-  send()
-
-  // Also respond to the ready signal (for freshly opened tabs)
-  function handler(event: MessageEvent): void {
-    if (event.data?.type === 'replay-analyzer-ready') {
-      send()
-      window.removeEventListener('message', handler)
-    }
-  }
-  window.addEventListener('message', handler)
-  setTimeout(() => window.removeEventListener('message', handler), 30_000)
+  window.postMessage({
+    type: 'replay-analyzer-load',
+    buffer: encoder.encode(rawvf).buffer,
+    filename,
+  }, '*')
 }
 
 // --------------------------------------------------------------------------
