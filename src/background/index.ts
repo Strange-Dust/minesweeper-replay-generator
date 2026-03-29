@@ -22,6 +22,9 @@ import {
 } from './webSocketCapture'
 import type { WsCaptureStatusResponse } from '../types/messages'
 
+/** Analyzer URL — keep in sync with popup.ts ANALYZER_URL and manifest.json host_permissions */
+const ANALYZER_URL = 'https://strange-dust.github.io/minesweeper-replay-analyzer/'
+
 /**
  * URL match patterns for all supported minesweeper sites.
  * Keep in sync with manifest.json content_scripts.matches + host_permissions.
@@ -123,7 +126,7 @@ browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime
     const { rawvf, filename, analyzerUrl } = message as {
       type: string; rawvf: string; filename: string; analyzerUrl: string
     }
-    return handleSendToAnalyzer(rawvf, filename, analyzerUrl)
+    return handleSendToAnalyzer(rawvf, filename, analyzerUrl, true)
   }
 })
 
@@ -178,6 +181,7 @@ async function handleSendToAnalyzer(
   rawvf: string,
   filename: string,
   analyzerUrl: string,
+  focusTab = true,
 ): Promise<{ success: boolean; error?: string }> {
   try {
     let tabId: number | null = null
@@ -210,13 +214,15 @@ async function handleSendToAnalyzer(
 
     // 3. Focus existing tab or create new one
     if (tabId != null) {
-      await browser.tabs.update(tabId, { active: true })
-      try {
-        const tab = await browser.tabs.get(tabId)
-        if (tab.windowId != null) {
-          await browser.windows.update(tab.windowId, { focused: true })
-        }
-      } catch { /* window focus is best-effort */ }
+      if (focusTab) {
+        await browser.tabs.update(tabId, { active: true })
+        try {
+          const tab = await browser.tabs.get(tabId)
+          if (tab.windowId != null) {
+            await browser.windows.update(tab.windowId, { focused: true })
+          }
+        } catch { /* window focus is best-effort */ }
+      }
     } else {
       isNewTab = true
     }
@@ -230,7 +236,7 @@ async function handleSendToAnalyzer(
         [PENDING_REPLAY_KEY]: { rawvf, filename, timestamp: Date.now() },
       })
 
-      const newTab = await browser.tabs.create({ url: analyzerUrl })
+      const newTab = await browser.tabs.create({ url: analyzerUrl, active: focusTab })
       if (!newTab.id) return { success: false, error: 'Failed to create tab' }
       tabId = newTab.id
       analyzerTabId = tabId
@@ -422,3 +428,36 @@ function sendReplayDirect(rawvf: string, filename: string): void {
 // no-ops if chrome.debugger is unavailable.
 
 initWebSocketCapture()
+
+// --------------------------------------------------------------------------
+// Auto-analyze: send new games to analyzer when preference is enabled
+// --------------------------------------------------------------------------
+// Lives in the background service worker because the popup is ephemeral and
+// will be closed when games are saved.
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.replayMeta) return
+  const oldMeta = (changes.replayMeta.oldValue ?? []) as Array<{ id: string }>
+  const newMeta = (changes.replayMeta.newValue ?? []) as Array<{ id: string; filename: string }>
+  if (newMeta.length <= oldMeta.length) return
+
+  // Find newly added game IDs
+  const oldIds = new Set(oldMeta.map(g => g.id))
+  const newGames = newMeta.filter(g => !oldIds.has(g.id))
+  if (newGames.length === 0) return
+
+  // Check if always-analyze preference is enabled
+  browser.storage.local.get('alwaysAnalyze').then(prefs => {
+    if (prefs.alwaysAnalyze !== true) return
+
+    for (const game of newGames) {
+      const contentKey = `replay_${game.id}`
+      browser.storage.local.get(contentKey).then(data => {
+        const rawvf = data[contentKey] as string | undefined
+        if (!rawvf) return
+        minfo('Auto-sending to analyzer:', game.filename)
+        handleSendToAnalyzer(rawvf, game.filename, ANALYZER_URL, false)
+      })
+    }
+  })
+})

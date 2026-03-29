@@ -293,12 +293,17 @@ body {
 .btn-analyze {
   flex-shrink: 0;
   align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   background: none;
   border: 1px solid #dee2e6;
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 13px;
+  padding: 0;
   cursor: pointer;
+  color: #555;
   opacity: 0.6;
   transition: opacity 0.15s, background 0.15s;
 }
@@ -306,6 +311,11 @@ body {
 .btn-analyze:hover {
   opacity: 1;
   background: #e9ecef;
+}
+
+.btn-analyze svg {
+  width: 16px;
+  height: 16px;
 }
 
 .history-actions {

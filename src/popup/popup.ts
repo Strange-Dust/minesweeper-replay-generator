@@ -57,6 +57,7 @@ const btnClearAll = document.getElementById('btn-clear-all') as HTMLButtonElemen
 const playerNameInput = document.getElementById('player-name') as HTMLInputElement
 const winsOnlyCheckbox = document.getElementById('wins-only') as HTMLInputElement
 const alwaysRecordCheckbox = document.getElementById('always-record') as HTMLInputElement
+const alwaysAnalyzeCheckbox = document.getElementById('always-analyze') as HTMLInputElement
 
 // Settings elements
 const settingsStatusEl = document.getElementById('settings-status') as HTMLDivElement
@@ -101,12 +102,13 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null
 
 async function init(): Promise<void> {
   // Load saved preferences
-  const prefs = await browser.storage.local.get(['playerName', 'winsOnly', 'alwaysRecord'])
+  const prefs = await browser.storage.local.get(['playerName', 'winsOnly', 'alwaysRecord', 'alwaysAnalyze'])
   if (prefs.playerName && typeof prefs.playerName === 'string') {
     playerNameInput.value = prefs.playerName
   }
   winsOnlyCheckbox.checked = prefs.winsOnly === true
   alwaysRecordCheckbox.checked = prefs.alwaysRecord === true
+  alwaysAnalyzeCheckbox.checked = prefs.alwaysAnalyze === true
   updateAlwaysRecordUI(prefs.alwaysRecord === true)
 
   // Event listeners
@@ -121,6 +123,9 @@ async function init(): Promise<void> {
     const enabled = alwaysRecordCheckbox.checked
     browser.storage.local.set({ alwaysRecord: enabled })
     updateAlwaysRecordUI(enabled)
+  })
+  alwaysAnalyzeCheckbox.addEventListener('change', () => {
+    browser.storage.local.set({ alwaysAnalyze: alwaysAnalyzeCheckbox.checked })
   })
   btnStart.addEventListener('click', startRecording)
   btnStop.addEventListener('click', stopRecording)
@@ -155,6 +160,12 @@ async function init(): Promise<void> {
     refreshSettings(),
     refreshCaptureStatus(),
   ])
+
+  // Watch for new games being saved (e.g. by content script while popup is open)
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.replayMeta) return
+    refreshGameList()
+  })
 }
 
 // --------------------------------------------------------------------------
@@ -293,7 +304,7 @@ function renderGameList(): void {
         </div>
         <div class="game-row-date">${date}</div>
       </div>
-      <button class="btn-analyze" data-id="${escapeAttr(game.id)}" title="Send to Analyzer">📊</button>
+      <button class="btn-analyze" data-id="${escapeAttr(game.id)}" title="Send to Analyzer"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h7v7"/><path d="M13 3L3 13"/></svg></button>
     </div>`
   }).join('')
 
@@ -663,7 +674,7 @@ function updateSettingsUI(stored: StoredSettings): void {
   // Show/hide warning icon on the collapsed summary
   const summaryEl = document.getElementById('settings-summary')
   if (summaryEl) {
-    summaryEl.textContent = (hasAutoDetected || isManual) ? 'Settings' : '⚠️ Settings'
+    summaryEl.textContent = (hasAutoDetected || isManual) ? 'Game Settings' : '⚠️ Settings'
   }
 
   // Current values display (shows effective settings)
