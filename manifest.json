@@ -5,6 +5,7 @@
   "description": "Records minesweeper games played online and generates .rawvf replay files.",
   "permissions": [
     "activeTab",
+    "contextMenus",
     "scripting",
     "storage",
     "unlimitedStorage",
@@ -13,7 +14,13 @@
   "host_permissions": [
     "https://minesweeper.online/*",
     "https://strange-dust.github.io/*",
-    "http://localhost:5173/*"
+    "http://localhost:5173/*",
+    "https://scoreganizer.net/*",
+    "https://*.scoreganizer.net/*",
+    "https://minesweepergame.com/*",
+    "https://*.minesweepergame.com/*",
+    "https://saolei.wang/*",
+    "https://*.saolei.wang/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",

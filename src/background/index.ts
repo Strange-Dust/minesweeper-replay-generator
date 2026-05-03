@@ -26,6 +26,25 @@ import type { WsCaptureStatusResponse } from '../types/messages'
 const ANALYZER_URL = 'https://strange-dust.github.io/minesweeper-replay-analyzer/'
 
 /**
+ * Domains where the "Send to Analyzer" context menu item appears on links.
+ * To add a new site:
+ *   1. Add the domain here (will match the domain and any subdomain)
+ *   2. Add matching entries to manifest.json `host_permissions` so the
+ *      background can fetch() from that domain
+ */
+const REPLAY_LINK_DOMAINS: string[] = [
+  'scoreganizer.net',
+  'minesweepergame.com',
+  'saolei.wang',
+]
+
+/** Glob patterns derived from REPLAY_LINK_DOMAINS for contextMenus.targetUrlPatterns */
+const REPLAY_LINK_PATTERNS: string[] = REPLAY_LINK_DOMAINS.flatMap(d => [
+  `*://${d}/*`,
+  `*://*.${d}/*`,
+])
+
+/**
  * URL match patterns for all supported minesweeper sites.
  * Keep in sync with manifest.json content_scripts.matches + host_permissions.
  */
@@ -177,12 +196,42 @@ const PENDING_REPLAY_KEY = 'pendingAnalyzerReplay'
 /** Track the analyzer tab so we can reuse it even if tabs.query fails */
 let analyzerTabId: number | null = null
 
+/**
+ * Convert a binary buffer to a base64 ASCII string, safe to round-trip
+ * through extension storage and structured-cloned messages without any
+ * UTF-8 corruption.
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(
+      null,
+      bytes.subarray(i, i + CHUNK) as unknown as number[],
+    )
+  }
+  return btoa(binary)
+}
+
 async function handleSendToAnalyzer(
-  rawvf: string,
+  data: string | ArrayBuffer | Uint8Array,
   filename: string,
   analyzerUrl: string,
   focusTab = true,
 ): Promise<{ success: boolean; error?: string }> {
+  // Normalize to bytes so the pipeline is binary-safe (text formats like
+  // RAWVF are encoded as UTF-8; binary formats like RMV/MVF/AVF are passed
+  // through unchanged).
+  let bytes: Uint8Array
+  if (typeof data === 'string') {
+    bytes = new TextEncoder().encode(data)
+  } else if (data instanceof Uint8Array) {
+    bytes = data
+  } else {
+    bytes = new Uint8Array(data)
+  }
+  const dataB64 = bytesToBase64(bytes)
+
   try {
     let tabId: number | null = null
     let isNewTab = false
@@ -233,7 +282,7 @@ async function handleSendToAnalyzer(
       // then inject a delivery script (isolated world) that reads from
       // storage and retries postMessage until the SPA picks it up.
       await browser.storage.local.set({
-        [PENDING_REPLAY_KEY]: { rawvf, filename, timestamp: Date.now() },
+        [PENDING_REPLAY_KEY]: { dataB64, filename, timestamp: Date.now() },
       })
 
       const newTab = await browser.tabs.create({ url: analyzerUrl, active: focusTab })
@@ -254,7 +303,7 @@ async function handleSendToAnalyzer(
         target: { tabId: tabId! },
         world: 'MAIN',
         func: sendReplayDirect,
-        args: [rawvf, filename],
+        args: [dataB64, filename],
       })
     }
 
@@ -341,15 +390,18 @@ function deliverPendingReplay(storageKey: string): void {
 
   storageGet(storageKey).then((result: Record<string, any>) => {
     const pending = result[storageKey]
-    if (!pending?.rawvf || !pending?.filename) {
+    if (!pending?.dataB64 || !pending?.filename) {
       console.warn(TAG, 'No pending replay found in storage')
       document.title = originalTitle
       return
     }
 
-    const { rawvf, filename } = pending as { rawvf: string; filename: string }
-    const encoder = new TextEncoder()
-    console.info(TAG, 'Delivering replay:', filename, '(' + rawvf.length + ' chars)')
+    const { dataB64, filename } = pending as { dataB64: string; filename: string }
+    // Decode base64 → raw bytes (binary-safe, no UTF-8 mangling)
+    const binary = atob(dataB64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    console.info(TAG, 'Delivering replay:', filename, '(' + bytes.length + ' bytes)')
 
     // Clear from storage immediately to prevent stale data
     storageAPI.remove(storageKey)
@@ -357,7 +409,7 @@ function deliverPendingReplay(storageKey: string): void {
     function send(): void {
       window.postMessage({
         type: 'replay-analyzer-load',
-        buffer: encoder.encode(rawvf).buffer,
+        buffer: bytes.buffer,
         filename,
       }, '*')
     }
@@ -407,15 +459,17 @@ function deliverPendingReplay(storageKey: string): void {
  * Injected into an EXISTING analyzer tab via scripting.executeScript (main world).
  * SPA is already initialized, so a single postMessage suffices.
  */
-function sendReplayDirect(rawvf: string, filename: string): void {
+function sendReplayDirect(dataB64: string, filename: string): void {
   const TAG = '[MSR Analyzer]'
-  const encoder = new TextEncoder()
+  const binary = atob(dataB64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
 
-  console.info(TAG, 'Sending replay:', filename, '(' + rawvf.length + ' chars)')
+  console.info(TAG, 'Sending replay:', filename, '(' + bytes.length + ' bytes)')
 
   window.postMessage({
     type: 'replay-analyzer-load',
-    buffer: encoder.encode(rawvf).buffer,
+    buffer: bytes.buffer,
     filename,
   }, '*')
 }
@@ -428,6 +482,71 @@ function sendReplayDirect(rawvf: string, filename: string): void {
 // no-ops if chrome.debugger is unavailable.
 
 initWebSocketCapture()
+
+// --------------------------------------------------------------------------
+// Context menu: "Send to Analyzer" on replay links
+// --------------------------------------------------------------------------
+// Right-clicking a link on a whitelisted domain (REPLAY_LINK_DOMAINS) shows
+// a "Send to Analyzer" item. Clicking it fetches the link contents into
+// memory and delivers them via the existing handleSendToAnalyzer pipeline.
+// No file is ever written to disk.
+
+const SEND_TO_ANALYZER_MENU_ID = 'msr-send-link-to-analyzer'
+
+/** Register the context menu. Called on install/update and on every service worker startup. */
+function registerContextMenu(): void {
+  // contextMenus.create throws if the ID already exists; remove first to be safe
+  browser.contextMenus.removeAll().then(() => {
+    browser.contextMenus.create({
+      id: SEND_TO_ANALYZER_MENU_ID,
+      title: 'Send to Minesweeper Analyzer',
+      contexts: ['link'],
+      targetUrlPatterns: REPLAY_LINK_PATTERNS,
+    })
+  }).catch(err => mwarn('Could not register context menu:', err))
+}
+
+// Register on install/update AND on every service worker start (MV3 SWs can die)
+browser.runtime.onInstalled.addListener(registerContextMenu)
+registerContextMenu()
+
+browser.contextMenus.onClicked.addListener(async (info) => {
+  if (info.menuItemId !== SEND_TO_ANALYZER_MENU_ID) return
+  if (!info.linkUrl) return
+
+  minfo('Context menu: fetching replay from', info.linkUrl)
+
+  try {
+    const response = await fetch(info.linkUrl)
+    if (!response.ok) {
+      mwarn('Replay fetch failed:', response.status, response.statusText)
+      return
+    }
+
+    // Fetch as raw bytes — replay formats include binary ones (RMV, MVF, AVF).
+    // Decoding via response.text() would corrupt non-ASCII bytes through UTF-8.
+    const buffer = await response.arrayBuffer()
+    if (buffer.byteLength === 0) {
+      mwarn('Fetched replay is empty')
+      return
+    }
+
+    // Derive a filename from the URL path, falling back to a generic name
+    const filename = deriveFilename(info.linkUrl)
+    await handleSendToAnalyzer(buffer, filename, ANALYZER_URL, true)
+  } catch (err) {
+    mwarn('Failed to fetch and send replay:', err)
+  }
+})
+
+function deriveFilename(url: string): string {
+  try {
+    const u = new URL(url)
+    const last = u.pathname.split('/').filter(Boolean).pop()
+    if (last) return decodeURIComponent(last)
+  } catch { /* fall through */ }
+  return 'replay.rawvf'
+}
 
 // --------------------------------------------------------------------------
 // Auto-analyze: send new games to analyzer when preference is enabled
