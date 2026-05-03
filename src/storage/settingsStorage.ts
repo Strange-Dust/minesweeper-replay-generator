@@ -11,11 +11,11 @@
  */
 
 import browser from '../utils/browser'
-import { minfo } from '../utils/log'
-import type { GameSettings, StoredSettings } from '../types/settings'
-import { DEFAULT_SETTINGS } from '../types/settings'
+import { minfo } from '../lib/utils/log'
+import type { GameSettings, StoredSettings } from '../lib/types/settings'
+import { DEFAULT_SETTINGS } from '../lib/types/settings'
 
-export type { StoredSettings } from '../types/settings'
+export type { StoredSettings } from '../lib/types/settings'
 
 const SETTINGS_KEY = 'gameSettings'
 

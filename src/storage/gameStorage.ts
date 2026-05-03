@@ -16,8 +16,8 @@
  */
 
 import browser from '../utils/browser'
-import { minfo } from '../utils/log'
-import type { GameResult } from '../types/rawvf'
+import { minfo } from '../lib/utils/log'
+import type { GameResult } from '../lib/types/rawvf'
 
 // ============================================================================
 // Constants

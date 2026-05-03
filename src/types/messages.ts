@@ -4,7 +4,7 @@
  * Content script ←→ Background service worker ←→ Popup
  */
 
-import type { RecordingState, RecordingData } from './rawvf'
+import type { RecordingState, RecordingData } from '../lib/types/rawvf'
 
 // ============================================================================
 // Content script → Background messages

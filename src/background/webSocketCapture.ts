@@ -27,8 +27,8 @@
  *   is lost on restart. The content script can re-request capture if needed.
  */
 
-import { mlog, mwarn, merr } from '../utils/log'
-import { parseSocketIoReplayFrame } from '../utils/socketIoParser'
+import { mlog, mwarn, merr } from '../lib/utils/log'
+import { parseSocketIoReplayFrame } from '../lib/utils/socketIoParser'
 
 // -------------------------------------------------------------------------
 // Chrome debugger API access

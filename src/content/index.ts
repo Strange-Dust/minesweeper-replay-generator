@@ -26,16 +26,16 @@
  */
 
 import browser from '../utils/browser'
-import type { RecordingState, RecordingData, GameResult, ReplayMetadata } from '../types/rawvf'
-import type { GameSettings } from '../types/settings'
+import type { RecordingState, RecordingData, GameResult, ReplayMetadata } from '../lib/types/rawvf'
+import type { GameSettings } from '../lib/types/settings'
 import type { StatusResponse } from '../types/messages'
-import { GameRecorder } from '../recording/recorder'
-import { generateRawvf, generateFilename } from '../rawvf/writer'
-import { convertWomReplay } from '../rawvf/womConverter'
-import { parseWomReplayPaste } from '../utils/socketIoParser'
+import { GameRecorder } from '../lib/recording/recorder'
+import { generateRawvf, generateFilename } from '../lib/rawvf/writer'
+import { convertWomReplay } from '../lib/rawvf/womConverter'
+import { parseWomReplayPaste } from '../lib/utils/socketIoParser'
 import { saveGame } from '../storage/gameStorage'
 import { saveAutoDetectedSettings, getEffectiveSettings } from '../storage/settingsStorage'
-import { detectSiteAdapter, type SiteAdapter } from './siteAdapters'
+import { MinesweeperOnlineSite } from '../lib/site/minesweeperOnline'
 
 // --------------------------------------------------------------------------
 // Double-injection guard
@@ -52,7 +52,7 @@ if ((window as any)[GUARD_KEY]) {
 }
 ;(window as any)[GUARD_KEY] = true
 
-import { mlog, mwarn, merr } from '../utils/log'
+import { mlog, mwarn, merr } from '../lib/utils/log'
 
 // --------------------------------------------------------------------------
 // Configuration
@@ -81,7 +81,7 @@ const URL_POLL_INTERVAL_MS = 40
 let sessionActive = false
 
 /** Adapter for the current session (set once at session start) */
-let currentAdapter: SiteAdapter | null = null
+let currentAdapter: MinesweeperOnlineSite | null = null
 
 /** Number of games completed during the current session (for popup polling) */
 let sessionGameCount = 0
@@ -108,7 +108,7 @@ let currentSettings: GameSettings | null = null
 let navigationMonitorInterval: ReturnType<typeof setInterval> | null = null
 
 /** Adapter used for the settings bridge (may differ from currentAdapter if no session is active) */
-let settingsBridgeAdapter: SiteAdapter | null = null
+let settingsBridgeAdapter: MinesweeperOnlineSite | null = null
 
 // --------------------------------------------------------------------------
 // Adapter watcher helpers
@@ -118,7 +118,7 @@ let settingsBridgeAdapter: SiteAdapter | null = null
  * Cancel all adapter DOM watchers (board reset, board change, game end).
  * Extracted because this exact sequence appears in 4+ places.
  */
-function cancelAllWatchers(adapter: SiteAdapter | null): void {
+function cancelAllWatchers(adapter: MinesweeperOnlineSite | null): void {
   adapter?.cancelBoardReset?.()
   adapter?.cancelBoardChange?.()
   adapter?.cancelGameEnd?.()
@@ -242,8 +242,8 @@ async function handleStartSession(): Promise<{ success: boolean; error?: string 
     return { success: true }
   }
 
-  const adapter = detectSiteAdapter()
-  if (!adapter) {
+  const adapter = new MinesweeperOnlineSite()
+  if (!adapter.matches()) {
     return {
       success: false,
       error: 'Could not detect a minesweeper board on this page. Make sure you are on a supported minesweeper website.',
@@ -333,7 +333,7 @@ function handleStopSession(): void {
  * When the board disappears: abort the current game, clean up observers.
  * When the board reappears: re-attach all observers, start a new game.
  */
-function startBoardPresenceMonitor(adapter: SiteAdapter): void {
+function startBoardPresenceMonitor(adapter: MinesweeperOnlineSite): void {
   stopBoardPresenceMonitor()
   lastKnownBoardElement = adapter.findBoardElement()
 
@@ -364,7 +364,7 @@ function startBoardPresenceMonitor(adapter: SiteAdapter): void {
 }
 
 /** Board element replaced (difficulty change or DOM rebuild). */
-function handleBoardElementReplaced(adapter: SiteAdapter, newElement: HTMLElement): void {
+function handleBoardElementReplaced(adapter: MinesweeperOnlineSite, newElement: HTMLElement): void {
   mlog('Board presence: element replaced (difficulty change or page update)')
   lastKnownBoardElement = newElement
 
@@ -376,7 +376,7 @@ function handleBoardElementReplaced(adapter: SiteAdapter, newElement: HTMLElemen
 }
 
 /** Board disappeared — user navigated away from the game page. */
-function handleBoardDisappeared(adapter: SiteAdapter): void {
+function handleBoardDisappeared(adapter: MinesweeperOnlineSite): void {
   mlog('Board presence: board disappeared (SPA navigation away from game)')
   lastKnownBoardElement = null
 
@@ -387,7 +387,7 @@ function handleBoardDisappeared(adapter: SiteAdapter): void {
 }
 
 /** Board appeared — user navigated back to the game page. */
-function handleBoardAppeared(adapter: SiteAdapter, element: HTMLElement): void {
+function handleBoardAppeared(adapter: MinesweeperOnlineSite, element: HTMLElement): void {
   mlog('Board presence: board appeared (SPA navigation to game)')
   lastKnownBoardElement = element
 
@@ -415,7 +415,7 @@ function stopBoardPresenceMonitor(): void {
  * also detects element replacement via polling. This fires faster for
  * in-place childList mutations (same element, new children).
  */
-function setupBoardChangeWatcher(adapter: SiteAdapter): void {
+function setupBoardChangeWatcher(adapter: MinesweeperOnlineSite): void {
   adapter.onBoardChange?.(() => {
     if (!sessionActive) return
     mlog('onBoardChange fired (childList mutation on board)')
@@ -455,7 +455,7 @@ function setupBoardChangeWatcher(adapter: SiteAdapter): void {
  * This is extracted as a standalone function so it can be called from both
  * startNextGame and the navigation handler's fast path.
  */
-function setupGameEndHandler(adapter: SiteAdapter): void {
+function setupGameEndHandler(adapter: MinesweeperOnlineSite): void {
   adapter.onGameEnd?.((result) => {
     if (recorder && recorder.getState() === 'recording') {
       mlog('Game end detected:', result)
@@ -509,7 +509,7 @@ function setupGameEndHandler(adapter: SiteAdapter): void {
  * Set up and start a new game recorder within the active session.
  * Called at session start and when board size changes.
  */
-function startNextGame(adapter: SiteAdapter): void {
+function startNextGame(adapter: MinesweeperOnlineSite): void {
   // Guard: don't start if there's already an active recorder.
   // Multiple code paths (URL change handler, board presence monitor, board
   // change watcher) can all call startNextGame — this prevents races.
@@ -578,7 +578,7 @@ const MINE_READ_DELAY_MS = 150
  * with the already-running next game recorder.
  */
 function readMinesAndSave(
-  adapter: SiteAdapter,
+  adapter: MinesweeperOnlineSite,
   data: RecordingData,
   result: GameResult,
   attempt: number,
@@ -693,7 +693,11 @@ function buildReplayMetadata(): ReplayMetadata {
 
 function getStatus(): StatusResponse {
   // Read player name from adapter even outside an active session
-  const adapter = currentAdapter || detectSiteAdapter()
+  let adapter: MinesweeperOnlineSite | null = currentAdapter
+  if (!adapter) {
+    const candidate = new MinesweeperOnlineSite()
+    if (candidate.matches()) adapter = candidate
+  }
   const detectedName = adapter?.getPlayerName?.() || undefined
 
   return {
@@ -729,7 +733,7 @@ let navigationGeneration = 0
  * the SPA updating the address bar to reflect a game that's already in
  * progress or about to start.
  */
-function handleNavigationDuringSession(adapter: SiteAdapter): void {
+function handleNavigationDuringSession(adapter: MinesweeperOnlineSite): void {
   const generation = ++navigationGeneration
 
   mlog('Navigation handler: URL changed during active session, generation =', generation)
@@ -857,8 +861,8 @@ async function persistAutoDetectedSettings(settings: GameSettings): Promise<void
 }
 
 function startNavigationMonitor(): void {
-  const adapter = detectSiteAdapter()
-  if (!adapter) return
+  const adapter = new MinesweeperOnlineSite()
+  if (!adapter.matches()) return
 
   // Initialize localStorage settings polling.
   // Reads chording mode, keyboard-as-mouse config, etc. from the site's

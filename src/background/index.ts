@@ -12,7 +12,7 @@
  */
 
 import browser from '../utils/browser'
-import { mlog, minfo, mwarn } from '../utils/log'
+import { mlog, minfo, mwarn } from '../lib/utils/log'
 import {
   initWebSocketCapture,
   isWebSocketCaptureSupported,

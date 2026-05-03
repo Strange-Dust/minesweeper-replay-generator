@@ -10,10 +10,10 @@
  */
 
 import browser from '../utils/browser'
-import { merr, minfo } from '../utils/log'
+import { merr, minfo } from '../lib/utils/log'
 import type { StatusResponse, WsCaptureStatusResponse, ParseWsReplayResponse } from '../types/messages'
-import type { GameSettings, ChordingMode } from '../types/settings'
-import { DEFAULT_SETTINGS } from '../types/settings'
+import type { GameSettings, ChordingMode } from '../lib/types/settings'
+import { DEFAULT_SETTINGS } from '../lib/types/settings'
 import {
   loadSettings,
   saveManualSettings,
@@ -29,7 +29,7 @@ import {
   type StoredGameMeta,
 } from '../storage/gameStorage'
 import { createZipBlob } from '../utils/zip'
-import { formatDateForFilename } from '../utils/format'
+import { formatDateForFilename } from '../lib/utils/format'
 
 // --------------------------------------------------------------------------
 // Analyzer URL — update this AND manifest.json host_permissions to match
