@@ -74,7 +74,7 @@ interface WomClick {
   x: number
   /** Row (0-indexed). */
   y: number
-  /** Cells affected by this click (not used for RAWVF conversion). */
+  /** Cells affected by this click. */
   touchCells?: number[]
 }
 
@@ -351,6 +351,7 @@ function resolveChordingMode(clickType: number): ChordingMode {
  * WoM click types:
  *   0 = left click (open cell) → lc + lr
  *   1 = right click (flag/unflag) → rc + rr
+ *   2 = wasted chord (no effect) → mc + mr
  *   3 = chord → depends on chording mode:
  *       'both': lc + rc + rr + lr (traditional left+right chord)
  *       'superclick': lc + lr (left-click-only chord on opened cell)
@@ -366,6 +367,10 @@ function convertClicks(clicks: WomClick[], squareSize: number, chordingMode: Cho
       // Right click (flag)
       events.push(makeEvent(click.time, 'rc', px, py))
       events.push(makeEvent(click.time, 'rr', px, py))
+    } else if (click.type === 2) {
+      // Wasted chord
+      events.push(makeEvent(click.time, 'mc', px, py))
+      events.push(makeEvent(click.time, 'mr', px, py))
     } else if (click.type === 3) {
       // Chord
       if (chordingMode === 'superclick') {
@@ -373,19 +378,17 @@ function convertClicks(clicks: WomClick[], squareSize: number, chordingMode: Cho
         events.push(makeEvent(click.time, 'lc', px, py))
         events.push(makeEvent(click.time, 'lr', px, py))
       } else {
-        // Traditional chord: simultaneous left+right press/release
-        events.push(makeEvent(click.time, 'lc', px, py))
-        events.push(makeEvent(click.time, 'rc', px, py))
-        events.push(makeEvent(click.time, 'rr', px, py))
-        events.push(makeEvent(click.time, 'lr', px, py))
+        // Standard chord: simultaneous left+right press/release, but we can use middle click for simplicity
+        events.push(makeEvent(click.time, 'mc', px, py))
+        events.push(makeEvent(click.time, 'mr', px, py))
       }
     } else {
       // Left click (open) — type 0 or default
       events.push(makeEvent(click.time, 'lc', px, py))
-      events.push(makeEvent(click.time, 'lr', px, py))
+      events.push(makeEvent(click.time, 'lr', px, py))  
     }
   }
-
+  
   return events
 }
 
