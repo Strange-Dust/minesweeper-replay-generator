@@ -353,7 +353,7 @@ function resolveChordingMode(clickType: number): ChordingMode {
  *   1 = right click (flag/unflag) → rc + rr
  *   2 = wasted chord (no effect) → mc + mr
  *   3 = chord → depends on chording mode:
- *       'both': lc + rc + rr + lr (traditional left+right chord)
+ *       'both': lc + rc + rr + lr (standard left+right chord)
  *       'superclick': lc + lr (left-click-only chord on opened cell)
  *       'disabled': lc + rc + rr + lr (fallback to traditional)
  */
