@@ -14,16 +14,35 @@
  *       o = opened state: 1 = opened, 0 = closed
  *       f = flagged state: 1 = flagged, 0 = not
  *   - clicks: Array<{ type, time, x, y, touchCells }>
- *       type: 0 = left click (open), 1 = right click (flag), 3 = chord
+ *       type: 0 = left click (open), 1 = right click (flag), 2 = wasted
+ *         chord, 3 = chord
  *       time: milliseconds since game start
  *       x: column (0-indexed), y: row (0-indexed)
+ *       touchCells: flat array of "chunks of 5" [x, y, code, extra, unused]
+ *         describing every cell affected by the click. Only parsed for PVP
+ *         (duel) games — see "PVP support" below.
  *
  *   - gameMeta.state values: 3 = won, 4 = lost (based on observed data)
+ *
+ * ## PVP support (local-area resets)
+ *
+ * PVP duel games (detected via the presence of `gameMeta.duelInfo`) can
+ * blast a mine WITHOUT ending the game: instead, a local region of the
+ * board is reset — mines in that region are re-randomized and revealed
+ * cells return to unrevealed. Because the mine layout can change mid-game,
+ * a replay engine can no longer simulate reveals purely from the initial
+ * `Board:` mine grid + mouse clicks (as non-PVP conversions do). Instead,
+ * for PVP games we parse every click's `touchCells` into explicit RAWVF
+ * board events (number reveals, flag/closed, blast, reset) so the replay
+ * is unambiguous. Non-PVP conversions are unaffected and remain mouse-only.
  */
 
 import type {
   RecordingData,
   RecordedMouseEvent,
+  RecordedBoardEvent,
+  RecordedEvent,
+  BoardEventCode,
   BoardPosition,
   GameResult,
 } from '../types/rawvf'
@@ -52,6 +71,24 @@ interface WomGameMeta {
   finishedAt?: string
   userId?: number
   level?: number  // 1 = beginner, 2 = intermediate, 3 = expert, 4 = custom
+  /** Present only for PVP (duel) games. Its presence is how we detect PVP. */
+  duelInfo?: WomDuelInfo
+}
+
+/**
+ * Duel metadata for PVP games (from `gameMeta.duelInfo`).
+ *
+ * `user1Id`/`user2Id` correlate with `game1Id`/`game2Id` respectively — the
+ * player whose `gameMeta.id` matches `game1Id` is `user1Id`, and vice versa.
+ * `game1Id`/`game2Id` can be `null` (e.g. a freshly created lobby game with
+ * no paired opponent game yet).
+ */
+interface WomDuelInfo {
+  id: number
+  user1Id: number
+  user2Id: number
+  game1Id: number | null
+  game2Id: number | null
 }
 
 /** Board data from WoM 203 response (index 1 of the data array). */
@@ -133,9 +170,14 @@ export function convertWomReplay(data: unknown): WomConversionResult {
   // Determine chording mode from clickType metadata
   const chordingMode = resolveChordingMode(gameMeta.clickType)
 
-  // Convert WoM clicks to RAWVF mouse events, then add simulated movement
-  const clickEvents = convertClicks(clicks, DEFAULT_SQUARE_SIZE, chordingMode)
-  const events = generateMouseMovement(clickEvents)
+  // PVP (duel) games can locally reset instead of ending on a mine blast —
+  // parse touchCells into explicit board events for these games only.
+  const isPvp = gameMeta.duelInfo != null
+  const opponentInfo = resolveOpponentInfo(gameMeta)
+
+  // Convert WoM clicks to click groups (mouse + board events), then add simulated movement
+  const clickGroups = buildClickGroups(clicks, DEFAULT_SQUARE_SIZE, chordingMode, isPvp)
+  const events = buildEventStream(clickGroups)
 
   // Determine game result
   const result = resolveGameResult(gameMeta.state)
@@ -159,6 +201,10 @@ export function convertWomReplay(data: unknown): WomConversionResult {
       questionMarks: false,
       chordingMode,
       url: `https://minesweeper.online/game/${gameMeta.id}`,
+      opponent: opponentInfo ? String(opponentInfo.opponentUserId) : undefined,
+      opponentUrl: opponentInfo?.opponentGameId != null
+        ? `https://minesweeper.online/game/${opponentInfo.opponentGameId}`
+        : undefined,
       levelCode: gameMeta.level,
     },
     result,
@@ -217,6 +263,28 @@ function validateGameMeta(raw: unknown): WomGameMeta {
     finishedAt: typeof meta.finishedAt === 'string' ? meta.finishedAt : undefined,
     userId: typeof meta.userId === 'number' ? meta.userId : undefined,
     level: typeof meta.level === 'number' ? meta.level : undefined,
+    duelInfo: parseDuelInfo(meta.duelInfo),
+  }
+}
+
+/**
+ * Parse `gameMeta.duelInfo`, if present. Never throws — a malformed or
+ * absent `duelInfo` simply means the game is treated as non-PVP.
+ */
+function parseDuelInfo(raw: unknown): WomDuelInfo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+
+  const d = raw as Record<string, unknown>
+  if (typeof d.id !== 'number' || typeof d.user1Id !== 'number' || typeof d.user2Id !== 'number') {
+    return undefined
+  }
+
+  return {
+    id: d.id,
+    user1Id: d.user1Id,
+    user2Id: d.user2Id,
+    game1Id: typeof d.game1Id === 'number' ? d.game1Id : null,
+    game2Id: typeof d.game2Id === 'number' ? d.game2Id : null,
   }
 }
 
@@ -254,11 +322,21 @@ function validateClicks(raw: unknown): WomClick[] {
         typeof c.x !== 'number' || typeof c.y !== 'number') {
       throw new Error(`Invalid click at index ${i}: missing required fields (type, time, x, y)`)
     }
+
+    let touchCells: number[] | undefined
+    if (c.touchCells !== undefined) {
+      if (!Array.isArray(c.touchCells) || c.touchCells.length % 5 !== 0) {
+        throw new Error(`Invalid click at index ${i}: touchCells must be an array with length divisible by 5`)
+      }
+      touchCells = c.touchCells as number[]
+    }
+
     return {
       type: c.type as number,
       time: c.time as number,
       x: c.x as number,
       y: c.y as number,
+      touchCells,
     }
   })
 }
@@ -342,54 +420,66 @@ function resolveChordingMode(clickType: number): ChordingMode {
   return 'disabled'
 }
 
+/** The opponent's user ID and game ID, resolved from `gameMeta.duelInfo`. */
+interface OpponentInfo {
+  opponentUserId: number
+  opponentGameId: number | null
+}
+
 /**
- * Convert WoM click events to RAWVF mouse events.
+ * Resolve the opponent's user/game IDs for a PVP game by matching this
+ * game's `id` against `duelInfo.game1Id`/`game2Id`.
  *
- * For each WoM click, generates a press + release pair at the same timestamp.
- * Pixel coordinates are calculated as cell center positions.
+ * Returns undefined for non-PVP games, or if `duelInfo` doesn't reference
+ * this game's ID (shouldn't normally happen, but data is treated as
+ * untrusted).
+ */
+function resolveOpponentInfo(gameMeta: WomGameMeta): OpponentInfo | undefined {
+  const duelInfo = gameMeta.duelInfo
+  if (!duelInfo) return undefined
+
+  if (duelInfo.game1Id === gameMeta.id) {
+    return { opponentUserId: duelInfo.user2Id, opponentGameId: duelInfo.game2Id }
+  }
+  if (duelInfo.game2Id === gameMeta.id) {
+    return { opponentUserId: duelInfo.user1Id, opponentGameId: duelInfo.game1Id }
+  }
+  return undefined
+}
+
+/**
+ * Convert a single WoM click to RAWVF mouse events (press + release pair(s)).
  *
  * WoM click types:
  *   0 = left click (open cell) → lc + lr
  *   1 = right click (flag/unflag) → rc + rr
  *   2 = wasted chord (no effect) → mc + mr
  *   3 = chord → depends on chording mode:
- *       'both': lc + rc + rr + lr (standard left+right chord)
+ *       'both': mc + mr (traditional left+right chord, using middle click for simplicity)
  *       'superclick': lc + lr (left-click-only chord on opened cell)
- *       'disabled': lc + rc + rr + lr (fallback to traditional)
+ *       'disabled': mc + mr (fallback to traditional)
  */
-function convertClicks(clicks: WomClick[], squareSize: number, chordingMode: ChordingMode): RecordedMouseEvent[] {
-  const events: RecordedMouseEvent[] = []
+function mouseEventsForClick(click: WomClick, squareSize: number, chordingMode: ChordingMode): RecordedMouseEvent[] {
+  const { px, py } = womXYToPixel(click.x, click.y, squareSize)
 
-  for (const click of clicks) {
-    const { px, py } = womXYToPixel(click.x, click.y, squareSize)
-
-    if (click.type === 1) {
-      // Right click (flag)
-      events.push(makeEvent(click.time, 'rc', px, py))
-      events.push(makeEvent(click.time, 'rr', px, py))
-    } else if (click.type === 2) {
-      // Wasted chord
-      events.push(makeEvent(click.time, 'mc', px, py))
-      events.push(makeEvent(click.time, 'mr', px, py))
-    } else if (click.type === 3) {
-      // Chord
-      if (chordingMode === 'superclick') {
-        // SuperClick: left-click on an already-opened numbered cell
-        events.push(makeEvent(click.time, 'lc', px, py))
-        events.push(makeEvent(click.time, 'lr', px, py))
-      } else {
-        // Standard chord: simultaneous left+right press/release, but we can use middle click for simplicity
-        events.push(makeEvent(click.time, 'mc', px, py))
-        events.push(makeEvent(click.time, 'mr', px, py))
-      }
-    } else {
-      // Left click (open) — type 0 or default
-      events.push(makeEvent(click.time, 'lc', px, py))
-      events.push(makeEvent(click.time, 'lr', px, py))  
+  if (click.type === 1) {
+    // Right click (flag)
+    return [makeEvent(click.time, 'rc', px, py), makeEvent(click.time, 'rr', px, py)]
+  } else if (click.type === 2) {
+    // Wasted chord
+    return [makeEvent(click.time, 'mc', px, py), makeEvent(click.time, 'mr', px, py)]
+  } else if (click.type === 3) {
+    // Chord
+    if (chordingMode === 'superclick') {
+      // SuperClick: left-click on an already-opened numbered cell
+      return [makeEvent(click.time, 'lc', px, py), makeEvent(click.time, 'lr', px, py)]
     }
+    // Standard chord: simultaneous left+right press/release, but we can use middle click for simplicity
+    return [makeEvent(click.time, 'mc', px, py), makeEvent(click.time, 'mr', px, py)]
+  } else {
+    // Left click (open) — type 0 or default
+    return [makeEvent(click.time, 'lc', px, py), makeEvent(click.time, 'lr', px, py)]
   }
-  
-  return events
 }
 
 function makeEvent(
@@ -399,6 +489,143 @@ function makeEvent(
   y: number,
 ): RecordedMouseEvent {
   return { type: 'mouse', timeMs, event, x, y, rawTimestamp: 0 }
+}
+
+// ============================================================================
+// PVP local-area resets — touchCells → board events
+//
+// touchCells is a flat array of "chunks of 5": [x, y, code, extra, unused].
+// Only parsed for PVP games (see module docs). Semantics of `code` depend
+// on the click type that produced it:
+//
+//   Click type 0 (left) / 3 (chord):
+//     0-8  = number revealed
+//     10/11 = mine / blasted mine revealed → 'blast'
+//     12   = bad flag revealed → no corresponding RAWVF event, skipped
+//     13   = local-reset "blast origin" cell (extra always 0)
+//     14   = local-reset, cell revealed after reset (extra = new number)
+//     15   = local-reset, cell left unrevealed after reset (extra always 0)
+//
+//   Click type 1 (right):
+//     only `extra` (the flag bit) matters — `code` ("mine presence") is
+//     intentionally ignored, see module docs.
+//
+//   Click type 2 (wasted chord):
+//     touchCells is always empty.
+// ============================================================================
+
+/**
+ * Convert a WoM click's `touchCells` into RAWVF board events.
+ */
+function chunksToBoardEvents(touchCells: number[] | undefined, clickType: number): RecordedBoardEvent[] {
+  if (!touchCells || touchCells.length === 0) return []
+
+  if (touchCells.length % 5 !== 0) {
+    console.error(`[MSR] Malformed touchCells array: length ${touchCells.length} is not a multiple of 5.`)
+    return []
+  }
+
+  const events: RecordedBoardEvent[] = []
+
+  for (let i = 0; i < touchCells.length; i += 5) {
+    const col = touchCells[i]!
+    const row = touchCells[i + 1]!
+    const code = touchCells[i + 2]!
+    const extra = touchCells[i + 3]!
+
+    if (clickType === 1) {
+      // Right click: only the flag bit (`extra`) matters. Mine-presence
+      // info (`code`) is intentionally ignored — see module docs.
+      events.push({ type: 'board', col, row, event: extra === 1 ? 'flag' : 'closed' })
+      continue
+    }
+
+    events.push(...chunkCodeToEvents(col, row, code, extra))
+  }
+
+  return events
+}
+
+/**
+ * Map a single reveal/reset chunk code to its board event(s).
+ */
+function chunkCodeToEvents(col: number, row: number, code: number, extra: number): RecordedBoardEvent[] {
+  if (code >= 0 && code <= 8) {
+    return [{ type: 'board', col, row, event: numberEventCode(code) }]
+  }
+  if (code === 10 || code === 11) {
+    // Mine / blasted mine revealed.
+    return [{ type: 'board', col, row, event: 'blast' }]
+  }
+  if (code === 12) {
+    // Bad flag revealed — no corresponding RAWVF board event.
+    return []
+  }
+  if (code === 13) {
+    return getBlastOriginEvents().map((event) => ({ type: 'board', col, row, event }))
+  }
+  if (code === 14) {
+    return [
+      { type: 'board', col, row, event: 'reset' },
+      { type: 'board', col, row, event: numberEventCode(extra) },
+    ]
+  }
+  if (code === 15) {
+    return [{ type: 'board', col, row, event: 'reset' }]
+  }
+
+  console.error(`[MSR] Unknown touchCells change code: ${code} at (${col}, ${row}).`)
+  return []
+}
+
+/**
+ * Board event(s) for the PVP local-reset "blast origin" cell (touchCells
+ * change code 13 — the mine that was actually blasted, triggering the reset).
+ *
+ * **PROVISIONAL / SUBJECT TO CHANGE**: currently mapped to a plain `reset`,
+ * same as any other cell in the reset region. This may later change (e.g.
+ * to also emit a `blast` event for this specific cell). Kept isolated here
+ * so that's a one-place edit.
+ */
+function getBlastOriginEvents(): BoardEventCode[] {
+  return ['reset']
+}
+
+/** Convert a 0-8 revealed number to its RAWVF board event code. */
+function numberEventCode(n: number): BoardEventCode {
+  if (n < 0 || n > 8) {
+    console.error(`[MSR] Unexpected revealed number value: ${n}, defaulting to number0.`)
+    return 'number0'
+  }
+  return `number${n}` as BoardEventCode
+}
+
+// ============================================================================
+// Click groups
+//
+// Each WoM click becomes a "group": the mouse events it produces, plus
+// (for PVP games) the board events derived from its touchCells. Grouping
+// keeps a click's mouse+board events together so movement synthesis can
+// treat each click as a single atomic unit.
+// ============================================================================
+
+interface ClickGroup {
+  timeMs: number
+  mouseEvents: RecordedMouseEvent[]
+  boardEvents: RecordedBoardEvent[]
+}
+
+function buildClickGroups(
+  clicks: WomClick[],
+  squareSize: number,
+  chordingMode: ChordingMode,
+  isPvp: boolean,
+): ClickGroup[] {
+  return clicks.map((click) => ({
+    timeMs: click.time,
+    mouseEvents: mouseEventsForClick(click, squareSize, chordingMode),
+    boardEvents: isPvp ? chunksToBoardEvents(click.touchCells, click.type) : [],
+  }))
 }
 
 // ============================================================================
@@ -412,34 +639,31 @@ function makeEvent(
 // ============================================================================
 
 /**
- * Insert simulated mouse movement ('mv') events between click groups.
+ * Interleave click groups into a final RecordedEvent stream, inserting
+ * simulated mouse movement ('mv') events between click groups.
  *
- * Click groups are sequences of events sharing the same timestamp
- * (e.g. lc+lr for a left click, or lc+rc+rr+lr for a chord).
- * Between each pair of consecutive groups, a straight-line movement
- * is generated from the previous click position to the next.
+ * Each group's mouse events are emitted first (in the same order as
+ * before), followed by any board events derived from that click.
  */
-function generateMouseMovement(events: RecordedMouseEvent[]): RecordedMouseEvent[] {
-  // Split events into groups by timestamp
-  const groups = groupByTimestamp(events)
-  if (groups.length <= 1) return events
+function buildEventStream(groups: ClickGroup[]): RecordedEvent[] {
+  if (groups.length === 0) return []
 
-  const result: RecordedMouseEvent[] = []
+  const result: RecordedEvent[] = []
 
   // Emit first group as-is
-  result.push(...groups[0])
+  result.push(...groups[0].mouseEvents, ...groups[0].boardEvents)
 
   for (let i = 1; i < groups.length; i++) {
     const prevGroup = groups[i - 1]
     const currGroup = groups[i]
 
-    const fromX = prevGroup[0].x
-    const fromY = prevGroup[0].y
-    const toX = currGroup[0].x
-    const toY = currGroup[0].y
+    const fromX = prevGroup.mouseEvents[0].x
+    const fromY = prevGroup.mouseEvents[0].y
+    const toX = currGroup.mouseEvents[0].x
+    const toY = currGroup.mouseEvents[0].y
 
-    const prevTime = prevGroup[0].timeMs
-    const clickTime = currGroup[0].timeMs
+    const prevTime = prevGroup.timeMs
+    const clickTime = currGroup.timeMs
     const gap = clickTime - prevTime
 
     // Movement starts MOVE_LEAD_TIME_MS before the click,
@@ -464,31 +688,8 @@ function generateMouseMovement(events: RecordedMouseEvent[]): RecordedMouseEvent
       }
     }
 
-    result.push(...currGroup)
+    result.push(...currGroup.mouseEvents, ...currGroup.boardEvents)
   }
 
   return result
-}
-
-/**
- * Group consecutive events that share the same timestamp.
- * Each group represents one logical click action (press + release pair(s)).
- */
-function groupByTimestamp(events: RecordedMouseEvent[]): RecordedMouseEvent[][] {
-  const groups: RecordedMouseEvent[][] = []
-  let current: RecordedMouseEvent[] = []
-
-  for (const event of events) {
-    if (current.length > 0 && event.timeMs !== current[0].timeMs) {
-      groups.push(current)
-      current = []
-    }
-    current.push(event)
-  }
-
-  if (current.length > 0) {
-    groups.push(current)
-  }
-
-  return groups
 }

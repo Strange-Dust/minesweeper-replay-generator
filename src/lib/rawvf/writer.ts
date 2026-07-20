@@ -14,6 +14,7 @@
 import type {
   RecordingData,
   RecordedMouseEvent,
+  RecordedBoardEvent,
   LevelName,
   GameMode,
 } from '../types/rawvf'
@@ -76,6 +77,14 @@ function buildDescription(recording: RecordingData): string {
     lines.push(`URL: ${metadata.url}`)
   }
 
+  if (metadata.opponent) {
+    lines.push(`Opponent: ${metadata.opponent}`)
+  }
+
+  if (metadata.opponentUrl) {
+    lines.push(`OpponentURL: ${metadata.opponentUrl}`)
+  }
+
   if (metadata.player) {
     lines.push(`Player: ${metadata.player}`)
   }
@@ -105,6 +114,10 @@ function buildDescription(recording: RecordingData): string {
 
   if (board.squareSize !== 16) {
     lines.push(`SquareSize: ${board.squareSize}`)
+  }
+
+  if (recording.events.some((event) => event.type === 'board')) {
+    lines.push('BoardEvents: On')
   }
 
   // Time
@@ -171,13 +184,17 @@ function buildBoard(recording: RecordingData): string {
  *
  * Event format (from spec):
  *   Mouse: <time> <event_code> <col_1indexed> <row_1indexed> (<pixel_x> <pixel_y>)
+ *   Board: <event_code> <col_1indexed> <row_1indexed> (no time prefix — board
+ *          events use the time of the preceding mouse event, per spec §4.2)
  */
 function buildEvents(recording: RecordingData): string {
   const lines: string[] = ['Events:']
   const squareSize = recording.board.squareSize
 
   for (const event of recording.events) {
-    lines.push(formatMouseEvent(event, squareSize))
+    lines.push(event.type === 'mouse'
+      ? formatMouseEvent(event, squareSize)
+      : formatBoardEvent(event))
   }
 
   return lines.join('\n')
@@ -196,6 +213,18 @@ function formatMouseEvent(event: RecordedMouseEvent, squareSize: number): string
   const cellRow = pixelToCell1Indexed(event.y, squareSize)
 
   return `${time} ${event.event} ${cellCol} ${cellRow} (${event.x} ${event.y})`
+}
+
+/**
+ * Format a board event as a RAWVF event line.
+ *
+ * Format: <event_code> <col_1indexed> <row_1indexed>
+ *
+ * Board events carry no time of their own — they use the time of the
+ * preceding mouse event (spec §4.2), so no time prefix is written.
+ */
+function formatBoardEvent(event: RecordedBoardEvent): string {
+  return `${event.event} ${event.col + 1} ${event.row + 1}`
 }
 
 // ============================================================================

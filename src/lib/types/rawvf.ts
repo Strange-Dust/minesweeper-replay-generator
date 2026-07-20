@@ -80,6 +80,43 @@ export interface RecordedMouseEvent {
   rawTimestamp: number
 }
 
+/**
+ * Board event codes used in RAWVF format (see rawvf spec.md §4.2).
+ *
+ * Board events represent something happening on the board as a result of
+ * player actions (or, for PVP local-area resets, server-driven changes).
+ * They carry no timestamp of their own — they use the time of the
+ * preceding mouse event.
+ */
+export type BoardEventCode =
+  | 'number0' | 'number1' | 'number2' | 'number3' | 'number4'
+  | 'number5' | 'number6' | 'number7' | 'number8'
+  | 'closed'
+  | 'flag'
+  | 'pressed'
+  | 'questionmark'
+  | 'pressedqm'
+  | 'blast'
+  | 'reset'
+
+/**
+ * A recorded board event. Currently only produced by the WoM PVP converter
+ * (`womConverter.ts`) to represent explicit reveals/flags/resets — never by
+ * the live browser recorder.
+ */
+export interface RecordedBoardEvent {
+  type: 'board'
+  /** Column, 0-indexed. Writer converts to 1-indexed on output. */
+  col: number
+  /** Row, 0-indexed. Writer converts to 1-indexed on output. */
+  row: number
+  /** Board event code */
+  event: BoardEventCode
+}
+
+/** A single event in the RAWVF event stream — either a mouse or board event. */
+export type RecordedEvent = RecordedMouseEvent | RecordedBoardEvent
+
 // ============================================================================
 // Description / metadata types
 // ============================================================================
@@ -112,6 +149,10 @@ export interface ReplayMetadata {
   version?: string
   /** URL of the game (optional, site-specific) */
   url?: string
+  /** Opponent's player name/id (PVP only, optional) */
+  opponent?: string
+  /** URL of the opponent's game (PVP only, optional, site-specific) */
+  opponentUrl?: string
   /** ISO timestamp of when the game was played */
   timestamp?: string
   /** Whether question marks are enabled */
@@ -143,8 +184,11 @@ export interface RecordingData {
   board: BoardConfig
   /** Mine positions (row, col), 0-indexed */
   minePositions: BoardPosition[]
-  /** All recorded mouse events in chronological order */
-  events: RecordedMouseEvent[]
+  /**
+   * All recorded events in chronological order. Board events (PVP only)
+   * are interleaved after the mouse events of the click that produced them.
+   */
+  events: RecordedEvent[]
   /** Metadata for the description header */
   metadata: ReplayMetadata
   /** Game result */
