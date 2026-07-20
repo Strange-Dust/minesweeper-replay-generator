@@ -154,14 +154,16 @@ Mouse states are not typically part of rawvf replays, but maybe someday they mig
 <board_event>    ::= <board_event_id> <column> <row>\n
 <board_event_id> ::= <number> | <unopened>
 <number>         ::= number0 | number1 | number2 | number3 | number4 | number5 | number6 | number7 | number8
-<unopened>       ::= closed | flag | pressed | questionmark | pressedqm | blast | reset 
+<unopened>       ::= closed | flag | pressed | questionmark | pressedqm | blast | reset | local_blast
 ```
 
-Board events are optional.  A replay without board events included will require a Minesweeper game simulation in order to recreate what happened during the game.
-
-Board events use the time of the preceeding mouse event.
+Board events are optional.  
 
 A board event represents something happening on the board, as a result of player actions.
+
+A replay without board events will require a Minesweeper game simulation in order to recreate what happened during the game.
+
+Board events use the time of the preceeding mouse event.
 
 For example, when revealing all the cells of an opening, the board events will include which number is revealed, and the grid (column, row) coordinates for each cell revealed.
 
@@ -174,6 +176,7 @@ Board Events:
 - `pressedqm` same as pressed, except the cell has a question mark
 - `blast` a cell with a mine has been revealed
 - `reset` a cell is returned to its unrevealed state, with mine presence data re-randomized
+- `local_blast` a blast that only resets some of the board, instead of ending the game
 
 Notes:
 * Note 1: the terms "closed" and "unrevealed" are treated as synonyms.
@@ -249,10 +252,11 @@ Options that can be `on` or `off` are treated as `off` if not present.
   - BBBV: 3BV of board
   - BBBVS: 3BV/s
 - Settings
+  - Mode: classic/ng/lucky/density/upk/cheat/pvp
   - Marks: `on/off` question marks 
-  - SquareSize: size (in pixels) of a square. if none, default is 16.
-  - Mode: classic/ng/lucky/density/upk/cheat
-  - BoardEvents: `on/off` indicates whether or not the file includes board events
+  - SquareSize: size (in pixels) of a square. default: 16
+  - BoardEvents: `on/off` whether or not the file includes board events
+  - DestructiveOpenings: `on/off` openings remove any incorrectly-placed flags
 - Cheat Settings
   - Lives: number of lives
   - Autoflag: `on/off` auto flag squares which are known mines
