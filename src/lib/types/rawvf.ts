@@ -133,9 +133,9 @@ export type LevelName = 'Beginner' | 'Intermediate' | 'Expert' | 'Custom'
   | 'Easy' | 'Medium' | 'Hard' | 'Evil'
 
 /**
- * Game mode: Classic or No Guess.
+ * Game mode: Classic, No Guess, or PVP (duel).
  */
-export type GameMode = 'Classic' | 'No Guess'
+export type GameMode = 'Classic' | 'No Guess' | 'PVP'
 
 /**
  * Metadata for the RAWVF description header.
@@ -165,6 +165,8 @@ export interface ReplayMetadata {
    * No Guess: 11=Easy, 12=Medium, 13=Hard, 14=Evil, 15=Custom
    */
   levelCode?: number
+  /** Whether this game is a PVP (duel) game. Forces Mode to 'PVP'. */
+  isPvp?: boolean
 }
 
 // ============================================================================

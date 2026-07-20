@@ -131,7 +131,7 @@ function buildDescription(recording: RecordingData): string {
   }
 
   // Mode
-  const mode = resolveGameMode(metadata.levelCode)
+  const mode = resolveGameMode(metadata.levelCode, metadata.isPvp)
   lines.push(`Mode: ${mode}`)
 
   return lines.join('\n')
@@ -281,9 +281,11 @@ function resolveLevelName(
 
 /**
  * Resolve the game mode from a WoM level code.
- * Codes 11-15 are No Guess mode; everything else is Classic.
+ * PVP (duel) games always report 'PVP', regardless of level code.
+ * Otherwise, codes 11-15 are No Guess mode; everything else is Classic.
  */
-function resolveGameMode(levelCode: number | undefined): GameMode {
+function resolveGameMode(levelCode: number | undefined, isPvp: boolean | undefined): GameMode {
+  if (isPvp) return 'PVP'
   if (levelCode != null && levelCode >= 11 && levelCode <= 15) return 'No Guess'
   return 'Classic'
 }

@@ -206,6 +206,7 @@ export function convertWomReplay(data: unknown): WomConversionResult {
         ? `https://minesweeper.online/game/${opponentInfo.opponentGameId}`
         : undefined,
       levelCode: gameMeta.level,
+      isPvp,
     },
     result,
     totalTimeMs,
@@ -494,25 +495,28 @@ function makeEvent(
 // ============================================================================
 // PVP local-area resets — touchCells → board events
 //
-// touchCells is a flat array of "chunks of 5": [x, y, code, extra, unused].
+// touchCells is a flat array of "chunks of 5": [x, y, code, index3, index4].
 // Only parsed for PVP games (see module docs). Semantics of `code` depend
 // on the click type that produced it:
 //
 //   Click type 0 (left) / 3 (chord):
 //     0-8  = number revealed
-//     10/11 = mine / blasted mine revealed → 'blast'
+//     10   = mine revealed at end-of-game (auto-shown, not player-placed —
+//            same rationale as the ignored mine-presence info below), skipped
+//     11   = actual blasted mine → 'blast'
 //     12   = bad flag revealed → no corresponding RAWVF event, skipped
-//     13   = local-reset "blast origin" cell (extra always 0)
-//     14   = local-reset, cell revealed after reset (extra = new number)
-//     15   = local-reset, cell left unrevealed after reset (extra always 0)
+//     13   = local-reset "blast origin" cell (index3 always 0)
+//     14   = local-reset, cell revealed after reset (index3 = new number)
+//     15   = local-reset, cell left unrevealed after reset (index3 always 0)
 //
 //   Click type 1 (right):
-//     only `extra` (the flag bit) matters — `code` ("mine presence") is
-//     intentionally ignored, see module docs.
+//     only `index4` (the flag bit: 0 = removed, 1 = placed) matters —
+//     `code` ("mine presence") is intentionally ignored, see module docs.
 //
 //   Click type 2 (wasted chord):
 //     touchCells is always empty.
 // ============================================================================
+
 
 /**
  * Convert a WoM click's `touchCells` into RAWVF board events.
@@ -531,16 +535,18 @@ function chunksToBoardEvents(touchCells: number[] | undefined, clickType: number
     const col = touchCells[i]!
     const row = touchCells[i + 1]!
     const code = touchCells[i + 2]!
-    const extra = touchCells[i + 3]!
+    const index3 = touchCells[i + 3]!
+    const index4 = touchCells[i + 4]!
 
     if (clickType === 1) {
-      // Right click: only the flag bit (`extra`) matters. Mine-presence
+      // Right click: only the flag bit (`index4`) matters. Mine-presence
       // info (`code`) is intentionally ignored — see module docs.
-      events.push({ type: 'board', col, row, event: extra === 1 ? 'flag' : 'closed' })
+      // index4: 0 = flag removed, 1 = flag placed.
+      events.push({ type: 'board', col, row, event: index4 === 1 ? 'flag' : 'closed' })
       continue
     }
 
-    events.push(...chunkCodeToEvents(col, row, code, extra))
+    events.push(...chunkCodeToEvents(col, row, code, index3))
   }
 
   return events
@@ -548,13 +554,21 @@ function chunksToBoardEvents(touchCells: number[] | undefined, clickType: number
 
 /**
  * Map a single reveal/reset chunk code to its board event(s).
+ *
+ * `index3` is only meaningful for code 14 (the newly-revealed number).
  */
-function chunkCodeToEvents(col: number, row: number, code: number, extra: number): RecordedBoardEvent[] {
+function chunkCodeToEvents(col: number, row: number, code: number, index3: number): RecordedBoardEvent[] {
   if (code >= 0 && code <= 8) {
     return [{ type: 'board', col, row, event: numberEventCode(code) }]
   }
-  if (code === 10 || code === 11) {
-    // Mine / blasted mine revealed.
+  if (code === 10) {
+    // Mine revealed at end-of-game (the auto-shown "this was a mine"
+    // reveal, not a flag the player actually placed) — omit, same as the
+    // ignored mine-presence info on click type 1.
+    return []
+  }
+  if (code === 11) {
+    // Actual blasted mine.
     return [{ type: 'board', col, row, event: 'blast' }]
   }
   if (code === 12) {
@@ -567,7 +581,7 @@ function chunkCodeToEvents(col: number, row: number, code: number, extra: number
   if (code === 14) {
     return [
       { type: 'board', col, row, event: 'reset' },
-      { type: 'board', col, row, event: numberEventCode(extra) },
+      { type: 'board', col, row, event: numberEventCode(index3) },
     ]
   }
   if (code === 15) {
