@@ -98,6 +98,7 @@ export type BoardEventCode =
   | 'pressedqm'
   | 'blast'
   | 'reset'
+  | 'local_blast'
 
 /**
  * A recorded board event. Currently only produced by the WoM PVP converter

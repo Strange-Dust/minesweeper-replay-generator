@@ -120,6 +120,10 @@ function buildDescription(recording: RecordingData): string {
     lines.push('BoardEvents: On')
   }
 
+  // minesweeper.online always removes incorrectly-placed flags when an
+  // opening is revealed — this is a fixed site behavior, not per-game config.
+  lines.push('DestructiveOpenings: On')
+
   // Time
   lines.push(`Time: ${formatRawvfTime(totalTimeMs)}`)
 

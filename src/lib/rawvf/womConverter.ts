@@ -505,7 +505,9 @@ function makeEvent(
 //            same rationale as the ignored mine-presence info below), skipped
 //     11   = actual blasted mine → 'blast'
 //     12   = bad flag revealed → no corresponding RAWVF event, skipped
-//     13   = local-reset "blast origin" cell (index3 always 0)
+//     13   = local-reset "blast origin" cell (index3 always 0) →
+//            'local_blast' then 'reset', always ordered before any other
+//            reset-derived events (code 14/15) produced by the same click
 //     14   = local-reset, cell revealed after reset (index3 = new number)
 //     15   = local-reset, cell left unrevealed after reset (index3 always 0)
 //
@@ -520,6 +522,11 @@ function makeEvent(
 
 /**
  * Convert a WoM click's `touchCells` into RAWVF board events.
+ *
+ * The code-13 "blast origin" cell's events are always placed first in the
+ * returned array, ahead of any other reset-derived events from the same
+ * click — this is enforced by construction (two-buffer partition below),
+ * not by assuming touchCells array order.
  */
 function chunksToBoardEvents(touchCells: number[] | undefined, clickType: number): RecordedBoardEvent[] {
   if (!touchCells || touchCells.length === 0) return []
@@ -529,7 +536,8 @@ function chunksToBoardEvents(touchCells: number[] | undefined, clickType: number
     return []
   }
 
-  const events: RecordedBoardEvent[] = []
+  const originEvents: RecordedBoardEvent[] = []
+  const otherEvents: RecordedBoardEvent[] = []
 
   for (let i = 0; i < touchCells.length; i += 5) {
     const col = touchCells[i]!
@@ -542,14 +550,15 @@ function chunksToBoardEvents(touchCells: number[] | undefined, clickType: number
       // Right click: only the flag bit (`index4`) matters. Mine-presence
       // info (`code`) is intentionally ignored — see module docs.
       // index4: 0 = flag removed, 1 = flag placed.
-      events.push({ type: 'board', col, row, event: index4 === 1 ? 'flag' : 'closed' })
+      otherEvents.push({ type: 'board', col, row, event: index4 === 1 ? 'flag' : 'closed' })
       continue
     }
 
-    events.push(...chunkCodeToEvents(col, row, code, index3))
+    const target = code === 13 ? originEvents : otherEvents
+    target.push(...chunkCodeToEvents(col, row, code, index3))
   }
 
-  return events
+  return [...originEvents, ...otherEvents]
 }
 
 /**
@@ -596,13 +605,14 @@ function chunkCodeToEvents(col: number, row: number, code: number, index3: numbe
  * Board event(s) for the PVP local-reset "blast origin" cell (touchCells
  * change code 13 — the mine that was actually blasted, triggering the reset).
  *
- * **PROVISIONAL / SUBJECT TO CHANGE**: currently mapped to a plain `reset`,
- * same as any other cell in the reset region. This may later change (e.g.
- * to also emit a `blast` event for this specific cell). Kept isolated here
- * so that's a one-place edit.
+ * Per RawVF Rev7, this is `local_blast` ("a blast that only resets some of
+ * the board, instead of ending the game") followed by `reset` (the cell's
+ * mine presence is re-randomized and it becomes unrevealed, same as every
+ * other cell in the reset region). Kept isolated here in case this mapping
+ * needs to change again.
  */
 function getBlastOriginEvents(): BoardEventCode[] {
-  return ['reset']
+  return ['local_blast', 'reset']
 }
 
 /** Convert a 0-8 revealed number to its RAWVF board event code. */
