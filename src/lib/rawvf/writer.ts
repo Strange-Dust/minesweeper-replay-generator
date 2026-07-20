@@ -66,27 +66,27 @@ function buildDescription(recording: RecordingData): string {
   const { board, metadata, result, totalTimeMs } = recording
   const lines: string[] = []
 
-  lines.push('RawVF_Version: Rev6.2')
+  lines.push('RawVF_Version: Rev7')
   lines.push(`Program: ${metadata.program}`)
 
   if (metadata.version) {
     lines.push(`Version: ${metadata.version}`)
   }
 
-  if (metadata.url) {
-    lines.push(`URL: ${metadata.url}`)
+  if (metadata.player) {
+    lines.push(`Player: ${metadata.player}`)
   }
 
   if (metadata.opponent) {
     lines.push(`Opponent: ${metadata.opponent}`)
   }
 
-  if (metadata.opponentUrl) {
-    lines.push(`OpponentURL: ${metadata.opponentUrl}`)
+  if (metadata.url) {
+    lines.push(`URL: ${metadata.url}`)
   }
 
-  if (metadata.player) {
-    lines.push(`Player: ${metadata.player}`)
+  if (metadata.opponentUrl) {
+    lines.push(`OpponentURL: ${metadata.opponentUrl}`)
   }
 
   if (metadata.timestamp) {
