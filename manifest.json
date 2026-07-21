@@ -9,7 +9,8 @@
     "scripting",
     "storage",
     "unlimitedStorage",
-    "debugger"
+    "debugger",
+    "alarms"
   ],
   "host_permissions": [
     "https://minesweeper.online/*",

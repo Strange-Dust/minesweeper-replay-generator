@@ -11,7 +11,7 @@
 
 import browser from '../utils/browser'
 import { merr, minfo } from '../lib/utils/log'
-import type { StatusResponse, WsCaptureStatusResponse, ParseWsReplayResponse } from '../types/messages'
+import type { StatusResponse, WsCaptureStatusResponse, ParseWsReplayResponse, StartBulkImportResponse, BulkImportStatusResponse } from '../types/messages'
 import type { GameSettings, ChordingMode } from '../lib/types/settings'
 import { DEFAULT_SETTINGS } from '../lib/types/settings'
 import {
@@ -79,6 +79,20 @@ const captureStatus = document.getElementById('capture-status') as HTMLSpanEleme
 const pasteInput = document.getElementById('paste-input') as HTMLTextAreaElement
 const btnConvert = document.getElementById('btn-convert') as HTMLButtonElement
 const convertStatus = document.getElementById('convert-status') as HTMLSpanElement
+
+// Bulk import elements
+const bulkImportSection = document.getElementById('bulk-import-section') as HTMLDivElement
+const bulkImportIdle = document.getElementById('bulk-import-idle') as HTMLDivElement
+const bulkImportRunning = document.getElementById('bulk-import-running') as HTMLDivElement
+const bulkImportInput = document.getElementById('bulk-import-input') as HTMLTextAreaElement
+const bulkImportLineCount = document.getElementById('bulk-import-line-count') as HTMLSpanElement
+const btnBulkStart = document.getElementById('btn-bulk-start') as HTMLButtonElement
+const btnBulkCancel = document.getElementById('btn-bulk-cancel') as HTMLButtonElement
+const bulkImportSummary = document.getElementById('bulk-import-summary') as HTMLSpanElement
+const bulkImportResults = document.getElementById('bulk-import-results') as HTMLDivElement
+
+/** Maximum non-empty input lines accepted by the background bulk-import job. */
+const BULK_IMPORT_MAX_LINES = 100
 
 // --------------------------------------------------------------------------
 // State
@@ -150,6 +164,12 @@ async function init(): Promise<void> {
     btnConvert.disabled = pasteInput.value.trim().length === 0
   })
 
+  // Bulk import UI
+  bulkImportInput.addEventListener('input', updateBulkImportLineCount)
+  btnBulkStart.addEventListener('click', onBulkStartClick)
+  btnBulkCancel.addEventListener('click', onBulkCancelClick)
+  updateBulkImportLineCount()
+
   // Initial visibility for "Select wins" link
   updateSelectWinsVisibility()
 
@@ -159,12 +179,22 @@ async function init(): Promise<void> {
     refreshStatus(),
     refreshSettings(),
     refreshCaptureStatus(),
+    refreshBulkImportVisibility(),
+    refreshBulkImportStatus(),
   ])
 
   // Watch for new games being saved (e.g. by content script while popup is open)
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !changes.replayMeta) return
     refreshGameList()
+  })
+
+  // Live progress updates broadcast by the background bulk-import job
+  browser.runtime.onMessage.addListener((message: unknown) => {
+    const msg = message as { type?: string; status?: BulkImportStatusResponse }
+    if (msg?.type === 'BULK_IMPORT_PROGRESS' && msg.status) {
+      renderBulkImportStatus(msg.status)
+    }
   })
 }
 
@@ -865,6 +895,110 @@ async function convertPaste(): Promise<void> {
     convertStatus.className = 'converter-status error'
     btnConvert.disabled = false
   }
+}
+
+// --------------------------------------------------------------------------
+// Bulk Game Recorder
+// --------------------------------------------------------------------------
+
+/** Split the textarea into non-empty, trimmed lines. */
+function getBulkImportLines(): string[] {
+  return bulkImportInput.value.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+}
+
+function updateBulkImportLineCount(): void {
+  const count = getBulkImportLines().length
+  bulkImportLineCount.textContent = `${count} / ${BULK_IMPORT_MAX_LINES} lines`
+  bulkImportLineCount.className = count > BULK_IMPORT_MAX_LINES ? 'converter-status error' : 'converter-status'
+  btnBulkStart.disabled = count === 0 || count > BULK_IMPORT_MAX_LINES
+}
+
+/** Chrome-only feature — hide the whole section on unsupported browsers. */
+async function refreshBulkImportVisibility(): Promise<void> {
+  const tabId = await getActiveTabId()
+  if (!tabId) {
+    bulkImportSection.classList.add('hidden')
+    return
+  }
+  const response = await sendToBackground({
+    type: 'GET_WS_CAPTURE_STATUS',
+    tabId,
+  }) as WsCaptureStatusResponse | null
+  bulkImportSection.classList.toggle('hidden', !response?.supported)
+}
+
+async function refreshBulkImportStatus(): Promise<void> {
+  const status = await sendToBackground({ type: 'GET_BULK_IMPORT_STATUS' }) as BulkImportStatusResponse | null
+  if (status) renderBulkImportStatus(status)
+}
+
+function renderBulkImportStatus(status: BulkImportStatusResponse): void {
+  if (status.total === 0 && !status.running) {
+    bulkImportIdle.classList.remove('hidden')
+    bulkImportRunning.classList.add('hidden')
+    return
+  }
+
+  bulkImportIdle.classList.add('hidden')
+  bulkImportRunning.classList.remove('hidden')
+  btnBulkCancel.classList.toggle('hidden', !status.running)
+
+  const successCount = status.results.filter(r => r.status === 'success').length
+  const failedCount = status.results.filter(r => r.status === 'failed').length
+  const invalidCount = status.results.filter(r => r.status === 'invalid').length
+
+  bulkImportSummary.textContent = status.running
+    ? `Processing ${Math.min(status.currentIndex + 1, status.total)} of ${status.total} \u2014 \u2705 ${successCount} \u274c ${failedCount} \u26a0\ufe0f ${invalidCount}`
+    : `Finished \u2014 \u2705 ${successCount} \u274c ${failedCount} \u26a0\ufe0f ${invalidCount}`
+
+  bulkImportResults.innerHTML = status.results.map((r, i) => {
+    const icon = r.status === 'success' ? '\u2705'
+      : r.status === 'failed' ? '\u274c'
+      : r.status === 'invalid' ? '\u26a0\ufe0f'
+      : (status.running && i === status.currentIndex) ? '\u23f3' : '\u00b7'
+    return `<div class="bulk-import-row bulk-import-row--${r.status}" title="${escapeAttr(r.error ?? '')}">
+      <span class="bulk-import-row-icon">${icon}</span>
+      <span class="bulk-import-row-input">${escapeAttr(r.input)}</span>
+    </div>`
+  }).join('')
+
+  if (!status.running) {
+    btnBulkStart.disabled = false
+    void refreshGameList()
+  }
+}
+
+async function onBulkStartClick(): Promise<void> {
+  const lines = getBulkImportLines()
+  if (lines.length === 0 || lines.length > BULK_IMPORT_MAX_LINES) return
+
+  const tabId = await getActiveTabId()
+  if (!tabId) return
+
+  btnBulkStart.disabled = true
+  const response = await sendToBackground({
+    type: 'START_BULK_IMPORT',
+    tabId,
+    lines,
+  }) as StartBulkImportResponse | null
+
+  if (!response?.success) {
+    bulkImportLineCount.textContent = response?.error ?? 'Failed to start bulk import'
+    bulkImportLineCount.className = 'converter-status error'
+    btnBulkStart.disabled = false
+    return
+  }
+
+  bulkImportInput.value = ''
+  updateBulkImportLineCount()
+  await refreshBulkImportStatus()
+}
+
+async function onBulkCancelClick(): Promise<void> {
+  btnBulkCancel.disabled = true
+  await sendToBackground({ type: 'STOP_BULK_IMPORT' })
+  btnBulkCancel.disabled = false
+  await refreshBulkImportStatus()
 }
 
 // --------------------------------------------------------------------------

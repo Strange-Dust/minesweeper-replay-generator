@@ -92,6 +92,54 @@ export interface ParseWsReplayResponse {
 }
 
 // ============================================================================
+// Popup → Background: Bulk Game Recorder
+// ============================================================================
+
+export interface StartBulkImportMessage {
+  type: 'START_BULK_IMPORT'
+  /** The tab to navigate through each game (captured once, at job start). */
+  tabId: number
+  /** Raw input lines from the textarea — one game ID or URL per line. */
+  lines: string[]
+}
+
+export interface StopBulkImportMessage {
+  type: 'STOP_BULK_IMPORT'
+}
+
+export interface GetBulkImportStatusMessage {
+  type: 'GET_BULK_IMPORT_STATUS'
+}
+
+export interface StartBulkImportResponse {
+  success: boolean
+  error?: string
+}
+
+export interface BulkImportResultEntry {
+  /** The original line of text as typed/pasted by the user. */
+  input: string
+  /** Parsed game ID, or null if the line couldn't be parsed. */
+  gameId: number | null
+  status: 'pending' | 'success' | 'failed' | 'invalid'
+  error?: string
+}
+
+export interface BulkImportStatusResponse {
+  running: boolean
+  total: number
+  /** Index of the item currently being processed (or `total` once finished). */
+  currentIndex: number
+  results: BulkImportResultEntry[]
+}
+
+/** Background → Popup: broadcast whenever bulk import progress changes. */
+export interface BulkImportProgressMessage {
+  type: 'BULK_IMPORT_PROGRESS'
+  status: BulkImportStatusResponse
+}
+
+// ============================================================================
 // Popup → Background: send replay to analyzer
 // ============================================================================
 
@@ -140,6 +188,9 @@ export type PopupToBackgroundMessage =
   | StopWsCaptureMessage
   | GetWsCaptureStatusMessage
   | SendToAnalyzerMessage
+  | StartBulkImportMessage
+  | StopBulkImportMessage
+  | GetBulkImportStatusMessage
 
 /** Messages sent from content script to background */
 export type ContentToBackgroundMessage =
@@ -151,9 +202,14 @@ export type ContentToBackgroundMessage =
 export type BackgroundToContentMessage =
   | WsReplayDataMessage
 
+/** Messages sent from background to popup */
+export type BackgroundToPopupMessage =
+  | BulkImportProgressMessage
+
 /** All extension messages */
 export type ExtensionMessage =
   | PopupToContentMessage
   | PopupToBackgroundMessage
   | ContentToBackgroundMessage
   | BackgroundToContentMessage
+  | BackgroundToPopupMessage

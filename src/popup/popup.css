@@ -548,3 +548,68 @@ summary {
 .converter-status.error {
   color: #dc3545;
 }
+
+/* ---- Bulk Import ---- */
+
+#bulk-import-details summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-import-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.bulk-import-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.bulk-import-results {
+  max-height: 160px;
+  margin-top: 6px;
+}
+
+.bulk-import-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.bulk-import-row:last-child {
+  border-bottom: none;
+}
+
+.bulk-import-row-icon {
+  flex-shrink: 0;
+}
+
+.bulk-import-row-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulk-import-row--failed .bulk-import-row-input {
+  color: #dc3545;
+}
+
+.bulk-import-row--invalid .bulk-import-row-input {
+  color: #856404;
+}
+
+.bulk-import-row--success .bulk-import-row-input {
+  color: #198754;
+}

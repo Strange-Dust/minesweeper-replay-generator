@@ -20,6 +20,7 @@ import {
   stopCapture,
   isCaptureActive,
 } from './webSocketCapture'
+import { startBulkImport, stopBulkImport, getBulkImportStatus } from './bulkImport'
 import type { WsCaptureStatusResponse } from '../types/messages'
 
 /** Analyzer URL — keep in sync with popup.ts ANALYZER_URL and manifest.json host_permissions */
@@ -146,6 +147,22 @@ browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime
       type: string; rawvf: string; filename: string; analyzerUrl: string
     }
     return handleSendToAnalyzer(rawvf, filename, analyzerUrl, true)
+  }
+
+  // --- Bulk Game Recorder messages ---
+
+  if (msg.type === 'START_BULK_IMPORT') {
+    const { tabId, lines } = message as { type: string; tabId: number; lines: string[] }
+    return Promise.resolve(startBulkImport(tabId, lines, handleCapturedReplayData))
+  }
+
+  if (msg.type === 'STOP_BULK_IMPORT') {
+    stopBulkImport()
+    return Promise.resolve({ success: true })
+  }
+
+  if (msg.type === 'GET_BULK_IMPORT_STATUS') {
+    return Promise.resolve(getBulkImportStatus())
   }
 })
 

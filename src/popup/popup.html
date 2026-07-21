@@ -127,6 +127,43 @@
       </details>
     </div>
 
+    <!-- Bulk Game Recorder -->
+    <div id="bulk-import-section" class="section">
+      <details id="bulk-import-details">
+        <summary>📦 Bulk Import <span class="converter-badge" id="bulk-import-badge">Chrome only</span></summary>
+
+        <p class="converter-desc">
+          Paste a list of game IDs or URLs (one per line, up to 100) and the
+          extension will navigate through them and capture each replay
+          automatically.
+        </p>
+
+        <div id="bulk-import-idle">
+          <textarea id="bulk-import-input" class="paste-input"
+            placeholder="6293748498&#10;https://minesweeper.online/game/6293748499&#10;…"
+            rows="6"></textarea>
+          <div class="bulk-import-footer">
+            <span id="bulk-import-line-count" class="converter-status">0 / 100 lines</span>
+            <button id="btn-bulk-start" class="btn btn-sm btn-primary" disabled>
+              ▶ Start Bulk Import
+            </button>
+          </div>
+          <p class="converter-hint">
+            "Always record" will be temporarily disabled during the import,
+            and restored afterward. Uses the currently active tab.
+          </p>
+        </div>
+
+        <div id="bulk-import-running" class="hidden">
+          <div class="bulk-import-progress-header">
+            <span id="bulk-import-summary" class="converter-status"></span>
+            <button id="btn-bulk-cancel" class="btn btn-sm btn-danger">⏹ Cancel</button>
+          </div>
+          <div id="bulk-import-results" class="game-list bulk-import-results"></div>
+        </div>
+      </details>
+    </div>
+
     <!-- Game Settings -->
     <div id="settings-section" class="section">
       <details>
